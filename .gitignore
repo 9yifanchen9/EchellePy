@@ -1,6 +1,11 @@
 data
 echelle-module
 echelle_fork
+InteractiveEchelleDemo.zip
+example.py
+test.py
+stars/star.py
+Star Analysis.ipynb
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
