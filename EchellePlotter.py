@@ -9,7 +9,8 @@ class EchellePlotter:
         freq, power,
         Dnu_min, Dnu_max, fmin=0, fmax=None, step=None,
         plot_period=False, DP_min=None, DP_max=None, pstep=None,
-        cmap="BuPu", interpolation=None, smooth=False, smooth_filter_width=50.0, scale=None):
+        cmap="BuPu", colors=None, markers=None,
+        interpolation=None, smooth=False, smooth_filter_width=50.0, scale=None):
     #==================================================================
     # Class attributes and argument checks
     #==================================================================
@@ -24,9 +25,20 @@ class EchellePlotter:
             self.DP = (DP_min + DP_max) / 2.0
 
         # Styles for labels
-        self.colors = {0: "blue", 1: "red", 2: "orange"}
-        self.markers = {0: "s", 1: "^", 2: "o"}
+        if colors == None:
+            self.colors = {0: "blue", 1: "red", 2: "orange"}
+        else:
+            if len(colors) != 3:
+                raise ValueError("There needs to be 3 colors provided")
+            self.colors = colors
 
+        if markers == None:
+            self.markers = {0: "s", 1: "^", 2: "o"}
+        else:
+            if len(markers) != 3:
+                raise ValueError("There needs to be 3 markers provided")            
+            self.markers = markers
+            
         if Dnu_max < Dnu_min:
             raise ValueError("Maximum range for Dnu can not be less than minimum")
 
@@ -592,16 +604,17 @@ if __name__ == "__main__":
     
 
     Dnu = 8.10 # large frequency separation (muHz)
-    fmin = 102 - 25
-    fmax = 102 + 25
+    fmin = 102 - 30
+    fmax = 102 + 30
 
     # Change to period
     DP = 194.0 # period spacing
 
     e = EchellePlotter(freq, amp, Dnu_min=Dnu-3, Dnu_max=Dnu+3, step=.05,
         fmin=fmin, fmax=fmax,
-        plot_period=True,  DP_min=DP-10, DP_max=DP+10, pstep=0.1)
+        plot_period=True,  DP_min=DP-10, DP_max=DP+10, pstep=0.1,
+        colors={0:"red", 1:"blue", 2:"red"},
+        markers={0: "o", 1:"^", 2:"s"})
     e.show()
-
 
 
