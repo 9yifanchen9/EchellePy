@@ -24,7 +24,7 @@ class EchellePlotter:
             self.DP = (DP_min + DP_max) / 2.0
 
         # Styles for labels
-        self.colors = {0: "blue", 1: "green", 2: "orange"}
+        self.colors = {0: "blue", 1: "red", 2: "orange"}
         self.markers = {0: "s", 1: "^", 2: "o"}
 
         if Dnu_max < Dnu_min:
@@ -85,13 +85,15 @@ class EchellePlotter:
         self.create_Dnu_slider(Dnu_min, Dnu_max, step)
 
         if self.plot_period:
+            # Invert axes for period plot
+            self.pax.invert_xaxis()
+            self.pax.invert_yaxis()
+
             self.pline = self.create_image(self.pax, self.px, self.py, self.pz, 
                 cmap, interpolation,
                 xlabel=u"Period mod \u0394P", ylabel="Period (s)")
-            
-            # self.pax.invert_xaxis()
-            # self.pax.invert_yaxis()
-            # self.update_period_echelle()# Update after inverted axes
+
+            self.set_pextent()
 
             self.create_DP_slider(DP_min, DP_max, pstep)
 
@@ -188,9 +190,12 @@ class EchellePlotter:
 
     def update_period_echelle(self):
         """Get new period echelle"""
-        # Descending period to match frequency plot
+        # Ascending period to feed into echelle
         self.px, self.py, self.pz = echelle(self.period[::-1], self.power[::-1], 
             self.DP, sampling=1, fmin=self.pmin, fmax=self.pmax)
+
+        self.pz = np.flip(self.pz, (0, 1))
+
         # Scale image intensities
         if self.scale is "sqrt":
             self.pz = np.sqrt(self.pz)
@@ -342,8 +347,9 @@ class EchellePlotter:
 
     def set_pextent(self):
         """Set new visible range for x and y axes of period echelle"""
-        self.pline.set_extent((self.px.min(), self.px.max(), self.py.min(), self.py.max()))
-        self.pax.set_xlim(0, self.DP)        
+        # Extent and xlim match inverted axes
+        self.pline.set_extent((self.px.max(), self.px.min(), self.py.max(), self.py.min()))
+        self.pax.set_xlim(self.DP, 0)
 
     def update_labels(self):
         """Update the labels to new echelle diagram coordinates"""
