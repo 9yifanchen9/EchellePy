@@ -7,13 +7,14 @@ import matplotlib.pyplot as plt
 class EchellePlotter:
     def __init__(self,     
         freq, power,
-        Dnu_min, Dnu_max,
+        Dnu_min, Dnu_max, fmin=0, fmax=None,
         step=None, cmap="BuPu", fig=None, ax=None,
         interpolation=None, smooth=False, smooth_filter_width=50.0,
         scale=None, return_coords=False, **kwargs):
 
-        # Passing onto echelle
-        self.kwargs = kwargs
+        self.Dnu = (Dnu_min + Dnu_max) / 2.0
+        self.fmin = fmin
+        self.fmax = fmax
 
         # Styles for labels
         self.colors = {0: "blue", 1: "green", 2: "orange"}
@@ -33,8 +34,8 @@ class EchellePlotter:
         self.power = power
 
         # Compute echelle
-        self.x, self.y, self.z = echelle(freq, self.power, (Dnu_max + Dnu_min) / 2.0, 
-            sampling=1, **kwargs)
+        self.x, self.y, self.z = echelle(freq, self.power, self.Dnu, 
+            sampling=1, fmin=fmin, fmax=fmax)
 
         # Scale image intensities
         if scale is "sqrt":
@@ -70,9 +71,8 @@ class EchellePlotter:
         self.create_remove_label_button()
 
         # List of 3 arrays, with index being l-mode label
-        # e.g. x_labels[1][2] is 3rd x-coord for l=1 mode label
-        self.x_labels = [[],[],[]]
-        self.y_labels = [[],[],[]]
+        # e.g. label_[1][2] is 3rd frequency for l=1 mode label
+        self.f_labels = [[],[],[]]
 
         # 3 scatter plots corresponding to l-mode labels
         self.create_label_scatters()
@@ -140,8 +140,10 @@ class EchellePlotter:
 
     def update(self, Dnu):
         """Updates echelle diagram given new Dnu"""
+        self.Dnu = Dnu
+
         # Calculate new data
-        self.x, self.y, self.z = echelle(self.freq, self.power, Dnu, sampling=1, **self.kwargs)
+        self.x, self.y, self.z = echelle(self.freq, self.power, self.Dnu, sampling=1, fmin=self.fmin, fmax=self.fmax)
         if self.scale != None:
             if self.scale == "sqrt":
                 self.z = np.sqrt(self.z)
@@ -151,36 +153,19 @@ class EchellePlotter:
 
         # Set new visible range for x and y axes
         self.line.set_extent((self.x.min(), self.x.max(), self.y.min(), self.y.max()))
-        self.ax.set_xlim(0, Dnu)
+        self.ax.set_xlim(0, self.Dnu)
 
         # Shift labelled points accordingly
-        self.update_labels(Dnu)
+        self.update_labels()
 
         # Render
         self.fig.canvas.blit(self.ax.bbox)
 
-    def update_labels(self, Dnu):
+    def update_labels(self):
         """Update the labels to new echelle diagram coordinates"""
-
-        # Coordinate switches
-        l = 0
-        while l < len(self.x_labels):
-            i = 0
-            while i < len(self.x_labels[l]):
-                # From coordinates to frequency
-                f = self.coord_to_freq(self.x_labels[l][i], self.y_labels[l][i])
-
-                # Get new coordinates
-                x, y = self.freq_to_coord(f, Dnu)
-                self.x_labels[l][i] = x
-                self.y_labels[l][i] = y
-
-                i += 1
-            l += 1
-
         # Replot
         l = 0
-        while l < len(self.x_labels):
+        while l < len(self.f_labels):
             self.update_scatter(l)
             l += 1
 
@@ -222,8 +207,8 @@ class EchellePlotter:
 
     def add_point(self, x, y, l):
         """Add point to the plot and update scatter"""
-        self.x_labels[l].append(x)
-        self.y_labels[l].append(y)
+        f = self.coord_to_freq(x, y)
+        self.f_labels[l].append(f)
         self.l_labels.append(l)
         self.update_scatter(l)
 
@@ -233,15 +218,14 @@ class EchellePlotter:
             return
 
         l = self.l_labels.pop()
-        self.x_labels[l].pop()
-        self.y_labels[l].pop()
+        self.f_labels[l].pop()
         self.update_scatter(l)
 
     def update_scatter(self, l):
         """Updates scatter plot"""
-        no_label_no_scatter = len(self.x_labels[l]) == 0 and self.scatters[l] == None
-        no_label_has_scatter = len(self.x_labels[l]) == 0 and self.scatters[l] != None
-        has_label_no_scatter = len(self.x_labels[l]) != 0 and self.scatters[l] == None
+        no_label_no_scatter = len(self.f_labels[l]) == 0 and self.scatters[l] == None
+        no_label_has_scatter = len(self.f_labels[l]) == 0 and self.scatters[l] != None
+        has_label_no_scatter = len(self.f_labels[l]) != 0 and self.scatters[l] == None
 
         if no_label_no_scatter:
             return
@@ -259,11 +243,10 @@ class EchellePlotter:
             marker = self.markers[l]
             label = f"l={l}"
 
-            # Increase y by half increment to label in middle of the stripes
-            self.scatters[l] = self.ax.scatter(self.x_labels[l], 
-                np.array(self.y_labels[l]) + 0.5*(self.y[1] - self.y[0]), s=50,
-                marker=marker, label=label,
-                color=color)
+            x_labels, y_labels = self.get_coords(l, self.Dnu)
+
+            self.scatters[l] = self.ax.scatter(x_labels, y_labels, 
+                s=50, marker=marker, label=label, color=color)
             
             # Set new visible range for x and y axes
             self.line.set_extent((self.x.min(), self.x.max(), self.y.min(), self.y.max()))
@@ -273,9 +256,8 @@ class EchellePlotter:
             if label not in self.legend_labels:
                 self.legend_labels.append(f"l={l}")
         else:
-            # Increase y by half increment to label in middle of the stripes
-            self.scatters[l].set_offsets(np.c_[self.x_labels[l], 
-                np.array(self.y_labels[l]) + 0.5*(self.y[1] - self.y[0])])
+            x_labels, y_labels = self.get_coords(l, self.Dnu)
+            self.scatters[l].set_offsets(np.c_[x_labels, y_labels])
         
         self.ax.legend(self.legend_labels)
         self.fig.canvas.draw()
@@ -296,12 +278,22 @@ class EchellePlotter:
         y = self.y[self.y < freq].max()# The bin just below the frequency is y-coordinate
         return x, y
 
+    def get_coords(self, l, Dnu):
+        xs = []
+        ys = []
+        for f in self.f_labels[l]:
+            x, y = self.freq_to_coord(f, Dnu)
+            xs.append(x)
+            ys.append(y)
+
+        return xs, ys
 
     def freq_to_coord(self, freq, Dnu):
         """Frequency to coordinate on the Echelle"""
         y_inc = self.y[1] - self.y[0]
         x = (freq - self.x.min()) % Dnu# freq mod Dnu is x-coordinate
-        y = self.y[self.y < freq].max()# The bin just below the frequency is y-coordinate
+        # The bin just below the frequency, plus half increment (for labelling in middle) 
+        y = self.y[self.y < freq].max() + 0.5*(self.y[1] - self.y[0])
         return x, y
 
     def coord_to_freq(self, x, y):
@@ -309,7 +301,7 @@ class EchellePlotter:
 
     def get_legend_labels(self):
         """Get legend labels based on whether there is data for each legend"""
-        return [f"l={i}" for i in range(len(self.x_labels)) if len(self.x_labels[i]) != 0]
+        return [f"l={l}" for l in range(len(self.f_labels)) if len(self.f_labels[l]) != 0]
 
 
 def echelle(freq, power, Dnu, fmin=0.0, fmax=None, offset=0.0, sampling=0.1):
