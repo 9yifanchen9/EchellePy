@@ -91,7 +91,7 @@ class EchellePlotter:
         self.step = step
 
         # Create widgets
-        self.line = self.create_image(self.ax, self.x, self.y, self.z, 
+        self.image = self.create_image(self.ax, self.x, self.y, self.z, 
             cmap, interpolation,
             xlabel=u"Frequency mod \u0394\u03BD", ylabel="Frequency (\u03BCHz)")
         self.create_Dnu_slider(Dnu_min, Dnu_max, step)
@@ -101,7 +101,7 @@ class EchellePlotter:
             self.pax.invert_xaxis()
             self.pax.invert_yaxis()
 
-            self.pline = self.create_image(self.pax, self.px, self.py, self.pz, 
+            self.pimage = self.create_image(self.pax, self.px, self.py, self.pz, 
                 cmap, interpolation,
                 xlabel=u"Period mod \u0394P", ylabel="Period (s)")
 
@@ -110,7 +110,7 @@ class EchellePlotter:
             self.create_DP_slider(DP_min, DP_max, pstep)
 
     #==================================================================
-    # Labelling
+    # Labelling point
     #==================================================================
         self.create_label_radio_buttons()
         self.create_remove_label_button()
@@ -126,12 +126,21 @@ class EchellePlotter:
         self.create_label_scatters()
         self.cid = self.fig.canvas.mpl_connect("button_press_event", self.on_click)
 
+    #==================================================================
+    # Labelling dotted images
+    #==================================================================
+        if self.plot_period:
+            self.create_undo_line_button()
+            self.ppoints = []
+            self.line, = self.pax.plot([],[],'b--')
+
+
 #======================================================================
 # Echelle diagram functionality
 #======================================================================
     def create_image(self, ax, x, y, z, cmap, interpolation, xlabel="", ylabel=""):
         """Create the echelle image"""
-        line = ax.imshow(
+        image = ax.imshow(
             z,
             aspect="auto",
             extent=(x.min(), x.max(), y.min(), y.max()),
@@ -143,7 +152,7 @@ class EchellePlotter:
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
 
-        return line
+        return image
 
     def create_Dnu_slider(self, Dnu_min, Dnu_max, step):
         """Create Slider that adjusts Dnu"""
@@ -218,7 +227,7 @@ class EchellePlotter:
         """Updates frequency echelle diagram given new Dnu"""
         self.Dnu = Dnu
         self.update_echelle()
-        self.line.set_array(self.z)
+        self.image.set_array(self.z)
 
         self.set_extent()
 
@@ -234,10 +243,10 @@ class EchellePlotter:
 
         # Calculate new data
         self.update_period_echelle()
-        self.pline.set_array(self.pz)
+        self.pimage.set_array(self.pz)
 
         # Set new visible range for x and y axes (reverted)
-        # self.pline.set_extent((self.px.max(), self.px.min(), self.py.max(), self.py.min()))
+        # self.pimage.set_extent((self.px.max(), self.px.min(), self.py.max(), self.py.min()))
         # self.pax.set_xlim(self.DP, 0)
 
         self.set_pextent()
@@ -269,7 +278,7 @@ class EchellePlotter:
             self.pupdate(new_DP)
 
 #======================================================================
-# Point Labelling
+# Point and image Labelling
 #======================================================================
     def create_label_scatters(self):
         """ Scatter plots for l-mode labelling """
@@ -279,20 +288,24 @@ class EchellePlotter:
             self.pscatters = [None, None, None]
 
     def create_label_radio_buttons(self):
-        """
-        Create RadioButtons to select labelling
-        """
-        # axcolor = 'lightgoldenrodyellow'
+        """Create RadioButtons to select labelling"""
         axcolor = 'white'
         rax = plt.axes([0.02, 0.7, 0.08, 0.15], facecolor=axcolor)
-        self.radio_l = RadioButtons(rax, ('-', 'l=0', 'l=1', 'l=2'))
+        self.radio_l = RadioButtons(rax, ('', '$\ell=0$', '$\ell=1$', '$\ell=2$', '---'))
 
     def create_remove_label_button(self):
         """Create Button to remove last label"""
         axcolor = 'white'
-        rax = plt.axes([0.02, 0.3, 0.08, 0.10], facecolor=axcolor)
-        self.remove_button = Button(rax, "Undo")
-        self.remove_button.on_clicked(self.remove_previous_label)
+        rax = plt.axes([0.02, 0.4, 0.08, 0.15], facecolor=axcolor)
+        self.undo_point_button = Button(rax, "\u27f2 Label")
+        self.undo_point_button.on_clicked(self.remove_previous_label)
+
+    def create_undo_line_button(self):
+        """Create Button to remove last label"""
+        axcolor = 'white'
+        rax = plt.axes([0.02, 0.2, 0.08, 0.15], facecolor=axcolor)
+        self.undo_line_button = Button(rax, "\u27f2 Line")
+        self.undo_line_button.on_clicked(self.undo_previous_line)
 
     def on_click(self, event):
         """Clicking event"""
@@ -305,16 +318,19 @@ class EchellePlotter:
             click_in_p_plot = False
 
         l_mode = self.radio_l.value_selected
-        if not (click_in_f_plot or click_in_p_plot) or l_mode == "-":
+        if not (click_in_f_plot or click_in_p_plot) or l_mode == "":
             return
-
-        # l mode integer
-        l = int(l_mode.replace("l=",""))
 
         # Coordinate of clicks on the image array
         x, y = event.xdata, event.ydata
 
-        if click_in_f_plot:    
+        if click_in_f_plot:
+            if l_mode == "---":
+                return
+
+            # l mode integer
+            l = self.get_l_mode_choice(l_mode)
+
             y_inc = self.y[1] - self.y[0]
 
             # Find the nearest x and y value in self.x and self.y
@@ -324,10 +340,9 @@ class EchellePlotter:
             nearest_y = self.y[self.y-y < 0].max()
 
             f = self.coord2freq(self.x[nearest_x_index], nearest_y)
+            self.add_point(f, l)
 
         elif click_in_p_plot:
-            py_inc = self.py[1] - self.py[0]
-
             # Find the nearest x and y value in self.x and self.y
             nearest_x_index = (np.abs(self.px-x)).argmin()
 
@@ -335,13 +350,28 @@ class EchellePlotter:
             nearest_y = self.py[self.py-y < 0].max()
             f = self.coord2freq(self.px[nearest_x_index], nearest_y, period=True)
 
-        self.add_point(f, l)
+            # Dotted images
+            if l_mode == "---":
+                self.add_line(f)
+                
+            # Point labelling
+            else:
+                l = self.get_l_mode_choice(l_mode)
+                py_inc = self.py[1] - self.py[0]
+
+                self.add_point(f, l)
 
     def add_point(self, f, l):
         """Add point to the plot and update scatter"""
         self.f_labels[l].append(f)
         self.l_labels.append(l)
         self.update_scatter(l)
+
+    def add_line(self, f):
+        """Add dotted line to the period diagram"""
+        self.ppoints.append(f)
+        self.update_line()
+        print(self.ppoints)
 
     def remove_previous_label(self, event):
         """Removes the previously added point"""
@@ -352,15 +382,23 @@ class EchellePlotter:
         self.f_labels[l].pop()
         self.update_scatter(l)
 
+    def undo_previous_line(self, event):
+        """Removes the previously added line segment"""
+        if len(self.ppoints) == 0:
+            return
+
+        self.ppoints.pop()
+        self.update_line()
+
     def set_extent(self):
         """Set new visible range for x and y axes of frequency echelle"""
-        self.line.set_extent((self.x.min(), self.x.max(), self.y.min(), self.y.max()))
+        self.image.set_extent((self.x.min(), self.x.max(), self.y.min(), self.y.max()))
         self.ax.set_xlim(0, self.Dnu)
 
     def set_pextent(self):
         """Set new visible range for x and y axes of period echelle"""
         # Extent and xlim match inverted axes
-        self.pline.set_extent((self.px.max(), self.px.min(), self.py.max(), self.py.min()))
+        self.pimage.set_extent((self.px.max(), self.px.min(), self.py.max(), self.py.min()))
         self.pax.set_xlim(self.DP, 0)
 
     def update_labels(self):
@@ -399,13 +437,13 @@ class EchellePlotter:
             label = f"l={l}"
 
             # Get frequency coordinates
-            x_labels, y_labels = self.get_coords(l, self.Dnu)
+            x_labels, y_labels = self.get_coords(self.f_labels[l], self.Dnu)
             self.scatters[l] = self.ax.scatter(x_labels, y_labels, 
                 s=50, marker=marker, label=label, color=color)
 
             # Period coordinates
             if self.plot_period:
-                px_labels, py_labels = self.get_pcoords(l, self.DP)
+                px_labels, py_labels = self.get_pcoords(self.f_labels[l], self.DP)
                 self.pscatters[l] = self.pax.scatter(px_labels, py_labels, 
                     s=50, marker=marker, label=label, color=color)
 
@@ -413,11 +451,11 @@ class EchellePlotter:
             if label not in self.legend_labels:
                 self.legend_labels.append(f"l={l}")
         else:
-            x_labels, y_labels = self.get_coords(l, self.Dnu)
+            x_labels, y_labels = self.get_coords(self.f_labels[l], self.Dnu)
             self.scatters[l].set_offsets(np.c_[x_labels, y_labels])
             
             if self.plot_period:
-                px_labels, py_labels = self.get_pcoords(l, self.DP)
+                px_labels, py_labels = self.get_pcoords(self.f_labels[l], self.DP)
                 self.pscatters[l].set_offsets(np.c_[px_labels, py_labels])
 
         # Prevent view from changing after point is added
@@ -430,26 +468,41 @@ class EchellePlotter:
 
         self.fig.canvas.draw()
 
+    def update_line(self):
+        """Update line"""
+        x_line, y_line = self.get_pcoords(self.ppoints, self.DP)
+        self.line.set_data(x_line, y_line)
+        self.fig.canvas.draw()
+
     def get_legend_labels(self):
         """Get legend labels based on whether there is data for each legend"""
         return [f"l={l}" for l in range(len(self.f_labels)) if len(self.f_labels[l]) != 0]
 
-    def get_coords(self, l, Dnu):
+    def get_l_mode_choice(self, choice):
+        if choice == '$\ell=0$':
+            return 0
+        elif choice == '$\ell=1$':
+            return 1
+        elif choice == '$\ell=2$':
+            return 2
+        return -1
+
+    def get_coords(self, freqs, Dnu):
         """From frequency to frequency coordinates"""
         xs = []
         ys = []
-        for f in self.f_labels[l]:
+        for f in freqs:
             x, y = self.f2coord(f, Dnu)
             xs.append(x)
             ys.append(y)
 
         return xs, ys
     
-    def get_pcoords(self, l, DP):
+    def get_pcoords(self, freqs, DP):
         """From frequency to period coordinates"""
         xs = []
         ys = []
-        for f in self.f_labels[l]:
+        for f in freqs:
             p = self.f2p(f)
             x, y = self.p2coord(p, DP)
             xs.append(x)
