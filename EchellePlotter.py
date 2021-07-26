@@ -18,15 +18,21 @@ class EchellePlotter:
         self.fmax = fmax
         self.scale = scale
 
+
         self.plot_period = plot_period
-        self.DP = (DP_min + DP_max) / 2.0
+        if self.plot_period:
+            self.DP = (DP_min + DP_max) / 2.0
 
         # Styles for labels
         self.colors = {0: "blue", 1: "green", 2: "orange"}
         self.markers = {0: "s", 1: "^", 2: "o"}
 
         if Dnu_max < Dnu_min:
-            raise ValueError("Maximum range can not be less than minimum")
+            raise ValueError("Maximum range for Dnu can not be less than minimum")
+
+        if self.plot_period:
+            if DP_max < DP_min:
+                raise ValueError("Maximum range for DP can not be less than minimum")
 
         if smooth_filter_width < 1:
             raise ValueError("The smooth filter width can not be less than 1!")
@@ -251,7 +257,9 @@ class EchellePlotter:
     def create_label_scatters(self):
         """ Scatter plots for l-mode labelling """
         self.scatters = [None, None, None]
-        self.pscatters = [None, None, None]
+
+        if self.plot_period:
+            self.pscatters = [None, None, None]
 
     def create_label_radio_buttons(self):
         """
@@ -272,29 +280,48 @@ class EchellePlotter:
     def on_click(self, event):
         """Clicking event"""
         # Only add label click in the echelle, and selected l mode to label
-        click_in_plot = event.inaxes == self.line.axes
+        click_in_f_plot = event.inaxes == self.ax
+
+        if self.plot_period:
+            click_in_p_plot = event.inaxes == self.pax
+        else:
+            click_in_p_plot = False
+
         l_mode = self.radio_l.value_selected
-        if not click_in_plot or l_mode == "-": return
+        if not (click_in_f_plot or click_in_p_plot) or l_mode == "-":
+            return
 
         # l mode integer
         l = int(l_mode.replace("l=",""))
 
         # Coordinate of clicks on the image array
         x, y = event.xdata, event.ydata
-        
-        y_inc = self.y[1] - self.y[0]
 
-        # Find the nearest x and y value in self.x and self.y
-        nearest_x_index = (np.abs(self.x-x)).argmin()
+        if click_in_f_plot:    
+            y_inc = self.y[1] - self.y[0]
 
-        # Find y that are just below our cursor
-        nearest_y = self.y[self.y-y < 0].max()
+            # Find the nearest x and y value in self.x and self.y
+            nearest_x_index = (np.abs(self.x-x)).argmin()
 
-        self.add_point(self.x[nearest_x_index], nearest_y, l)
+            # Find y that are just below our cursor
+            nearest_y = self.y[self.y-y < 0].max()
 
-    def add_point(self, x, y, l):
+            f = self.coord2freq(self.x[nearest_x_index], nearest_y)
+
+        elif click_in_p_plot:
+            py_inc = self.py[1] - self.py[0]
+
+            # Find the nearest x and y value in self.x and self.y
+            nearest_x_index = (np.abs(self.px-x)).argmin()
+
+            # Find y that are just below our cursor
+            nearest_y = self.py[self.py-y < 0].max()
+            f = self.coord2freq(self.px[nearest_x_index], nearest_y, period=True)
+
+        self.add_point(f, l)
+
+    def add_point(self, f, l):
         """Add point to the plot and update scatter"""
-        f = self.coord2freq(x, y)
         self.f_labels[l].append(f)
         self.l_labels.append(l)
         self.update_scatter(l)
@@ -339,8 +366,10 @@ class EchellePlotter:
         elif no_label_has_scatter:
             self.scatters[l].remove()
             self.scatters[l] = None
-            self.pscatters[l].remove()
-            self.pscatters[l] = None
+            
+            if self.plot_period:            
+                self.pscatters[l].remove()
+                self.pscatters[l] = None
 
             self.legend_labels.remove(f"l={l}")
 
@@ -357,9 +386,10 @@ class EchellePlotter:
                 s=50, marker=marker, label=label, color=color)
 
             # Period coordinates
-            px_labels, py_labels = self.get_pcoords(l, self.DP)
-            self.pscatters[l] = self.pax.scatter(px_labels, py_labels, 
-                s=50, marker=marker, label=label, color=color)
+            if self.plot_period:
+                px_labels, py_labels = self.get_pcoords(l, self.DP)
+                self.pscatters[l] = self.pax.scatter(px_labels, py_labels, 
+                    s=50, marker=marker, label=label, color=color)
 
             # Legend labels
             if label not in self.legend_labels:
@@ -367,28 +397,27 @@ class EchellePlotter:
         else:
             x_labels, y_labels = self.get_coords(l, self.Dnu)
             self.scatters[l].set_offsets(np.c_[x_labels, y_labels])
-        
-            px_labels, py_labels = self.get_pcoords(l, self.DP)
-            self.pscatters[l].set_offsets(np.c_[px_labels, py_labels])
+            
+            if self.plot_period:
+                px_labels, py_labels = self.get_pcoords(l, self.DP)
+                self.pscatters[l].set_offsets(np.c_[px_labels, py_labels])
 
         # Prevent view from changing after point is added
         self.set_extent()
-        self.set_pextent()
         self.ax.legend(self.legend_labels)
+
+        if self.plot_period:
+            self.set_pextent()
+            self.pax.legend(self.legend_labels)
+
         self.fig.canvas.draw()
 
     def get_legend_labels(self):
         """Get legend labels based on whether there is data for each legend"""
         return [f"l={l}" for l in range(len(self.f_labels)) if len(self.f_labels[l]) != 0]
 
-    def p2coord(self, period, DP):
-        """Period to coordinate on the Echelle period"""
-        y_inc = self.y[1] - self.y[0]
-        x = (freq - self.x.min()) % Dnu# freq mod Dnu is x-coordinate
-        y = self.y[self.y < freq].max()# The bin just below the frequency is y-coordinate
-        return x, y
-
     def get_coords(self, l, Dnu):
+        """From frequency to frequency coordinates"""
         xs = []
         ys = []
         for f in self.f_labels[l]:
@@ -399,10 +428,11 @@ class EchellePlotter:
         return xs, ys
     
     def get_pcoords(self, l, DP):
+        """From frequency to period coordinates"""
         xs = []
         ys = []
         for f in self.f_labels[l]:
-            p = self.p2f(f)
+            p = self.f2p(f)
             x, y = self.p2coord(p, DP)
             xs.append(x)
             ys.append(y)
@@ -421,12 +451,18 @@ class EchellePlotter:
         """Period to coordinate on the Echelle"""
         py_inc = self.py[1] - self.py[0]
         x = (period - self.px.min()) % DP# period mod DP is x-coordinate
-        # The bin just below the frequency, plus half increment (for labelling in middle)
+        
+        # The bin just below the period, plus half increment (for labelling in middle)
         y = self.py[self.py < period].max() + 0.5*py_inc
         return x, y
 
-    def coord2freq(self, x, y):
-        return y + x
+    def coord2freq(self, x, y, period=False):
+        if not period:
+            return y + x
+
+        # Period coordinates to frequency
+        p = x + y
+        return self.p2f(p)
 
 #======================================================================
 # Utilities
@@ -557,8 +593,8 @@ if __name__ == "__main__":
     DP = 194.0 # period spacing
 
     e = EchellePlotter(freq, amp, Dnu_min=Dnu-3, Dnu_max=Dnu+3, step=.05,
-        fmin=fmin, fmax=fmax, plot_period=True, 
-        DP_min=DP-10, DP_max=DP+10, pstep=0.1)
+        fmin=fmin, fmax=fmax,
+        plot_period=True,  DP_min=DP-10, DP_max=DP+10, pstep=0.1)
     e.show()
 
 
