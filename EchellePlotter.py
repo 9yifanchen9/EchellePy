@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from astropy.convolution import convolve, Box1DKernel
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 from matplotlib.widgets import Slider, RadioButtons, Button
 
 class EchellePlotter:
@@ -97,8 +98,7 @@ class EchellePlotter:
         self.create_Dnu_slider(Dnu_min, Dnu_max, step)
 
         if self.plot_period:
-            # Invert axes for period plot
-            self.pax.invert_xaxis()
+            # Invert axis for period plot
             self.pax.invert_yaxis()
 
             self.pimage = self.create_image(self.pax, self.px, self.py, self.pz, 
@@ -129,11 +129,7 @@ class EchellePlotter:
     #==================================================================
     # Labelling dotted images
     #==================================================================
-        if self.plot_period:
-            self.create_undo_line_button()
-            self.ppoints = []
-            self.line, = self.pax.plot([],[],'b--')
-
+    # Done in update_scatter
 
 #======================================================================
 # Echelle diagram functionality
@@ -201,7 +197,7 @@ class EchellePlotter:
 
     def update_echelle(self):
         """Get new period echelle"""
-        self.x, self.y, self.z = echelle(self.freq, self.power, self.Dnu, 
+        self.x, self.y, self.z = EchellePlotter.echelle(self.freq, self.power, self.Dnu, 
             sampling=1, fmin=self.fmin, fmax=self.fmax)
         # Scale image intensities
         if self.scale is "sqrt":
@@ -212,10 +208,11 @@ class EchellePlotter:
     def update_period_echelle(self):
         """Get new period echelle"""
         # Ascending period to feed into echelle
-        self.px, self.py, self.pz = echelle(self.period[::-1], self.power[::-1], 
+        self.px, self.py, self.pz = EchellePlotter.echelle(self.period[::-1], self.power[::-1], 
             self.DP, sampling=1, fmin=self.pmin, fmax=self.pmax)
 
-        self.pz = np.flip(self.pz, (0, 1))
+        # Flip the y-axis
+        self.pz = np.flip(self.pz, 1)
 
         # Scale image intensities
         if self.scale is "sqrt":
@@ -278,7 +275,7 @@ class EchellePlotter:
             self.pupdate(new_DP)
 
 #======================================================================
-# Point and image Labelling
+# Point and line Labelling
 #======================================================================
     def create_label_scatters(self):
         """ Scatter plots for l-mode labelling """
@@ -292,6 +289,7 @@ class EchellePlotter:
         axcolor = 'white'
         rax = plt.axes([0.02, 0.7, 0.08, 0.15], facecolor=axcolor)
         self.radio_l = RadioButtons(rax, ('', '$\ell=0$', '$\ell=1$', '$\ell=2$', '---'))
+        # self.radio_l = RadioButtons(rax, ('', '$\ell=0$', '$\ell=1$', '$\ell=2$', '---'))
 
     def create_remove_label_button(self):
         """Create Button to remove last label"""
@@ -299,13 +297,6 @@ class EchellePlotter:
         rax = plt.axes([0.02, 0.4, 0.08, 0.15], facecolor=axcolor)
         self.undo_point_button = Button(rax, "\u27f2 Label")
         self.undo_point_button.on_clicked(self.remove_previous_label)
-
-    def create_undo_line_button(self):
-        """Create Button to remove last label"""
-        axcolor = 'white'
-        rax = plt.axes([0.02, 0.2, 0.08, 0.15], facecolor=axcolor)
-        self.undo_line_button = Button(rax, "\u27f2 Line")
-        self.undo_line_button.on_clicked(self.undo_previous_line)
 
     def on_click(self, event):
         """Clicking event"""
@@ -325,6 +316,7 @@ class EchellePlotter:
         x, y = event.xdata, event.ydata
 
         if click_in_f_plot:
+            # Manually adding lines
             if l_mode == "---":
                 return
 
@@ -367,11 +359,8 @@ class EchellePlotter:
         self.l_labels.append(l)
         self.update_scatter(l)
 
-    def add_line(self, f):
-        """Add dotted line to the period diagram"""
-        self.ppoints.append(f)
-        self.update_line()
-        print(self.ppoints)
+        if l == 1:
+            self.update_line(l)
 
     def remove_previous_label(self, event):
         """Removes the previously added point"""
@@ -382,24 +371,16 @@ class EchellePlotter:
         self.f_labels[l].pop()
         self.update_scatter(l)
 
-    def undo_previous_line(self, event):
-        """Removes the previously added line segment"""
-        if len(self.ppoints) == 0:
-            return
-
-        self.ppoints.pop()
-        self.update_line()
-
     def set_extent(self):
         """Set new visible range for x and y axes of frequency echelle"""
         self.image.set_extent((self.x.min(), self.x.max(), self.y.min(), self.y.max()))
         self.ax.set_xlim(0, self.Dnu)
 
     def set_pextent(self):
-        """Set new visible range for x and y axes of period echelle"""
+        """Set new visible range for y axis of period echelle"""
         # Extent and xlim match inverted axes
-        self.pimage.set_extent((self.px.max(), self.px.min(), self.py.max(), self.py.min()))
-        self.pax.set_xlim(self.DP, 0)
+        self.pimage.set_extent((self.px.min(), self.px.max(), self.py.max(), self.py.min()))
+        self.pax.set_xlim(0, self.DP)
 
     def update_labels(self):
         """Update the labels to new echelle diagram coordinates"""
@@ -423,7 +404,7 @@ class EchellePlotter:
             self.scatters[l].remove()
             self.scatters[l] = None
             
-            if self.plot_period:            
+            if self.plot_period:
                 self.pscatters[l].remove()
                 self.pscatters[l] = None
 
@@ -443,9 +424,18 @@ class EchellePlotter:
 
             # Period coordinates
             if self.plot_period:
-                px_labels, py_labels = self.get_pcoords(self.f_labels[l], self.DP)
-                self.pscatters[l] = self.pax.scatter(px_labels, py_labels, 
-                    s=50, marker=marker, label=label, color=color)
+                # Line instead of scatter plot
+                if l == 1:
+                    # Connect dots in ascending frequency order
+                    ordered_f = np.sort(self.f_labels[l])
+                    x_line, y_line = self.get_pcoords(np.array(ordered_f), self.DP)
+
+                    # Only gets plot when expanded as tuple
+                    self.pscatters[l], = self.pax.plot([],[],'b^--',label=None)
+                else:
+                    px_labels, py_labels = self.get_pcoords(self.f_labels[l], self.DP)
+                    self.pscatters[l] = self.pax.scatter(px_labels, py_labels, 
+                        s=50, marker=marker, label=label, color=color)
 
             # Legend labels
             if label not in self.legend_labels:
@@ -455,8 +445,11 @@ class EchellePlotter:
             self.scatters[l].set_offsets(np.c_[x_labels, y_labels])
             
             if self.plot_period:
-                px_labels, py_labels = self.get_pcoords(self.f_labels[l], self.DP)
-                self.pscatters[l].set_offsets(np.c_[px_labels, py_labels])
+                if type(self.pscatters[l]) == Line2D:
+                    self.update_line(l)
+                else:                
+                    px_labels, py_labels = self.get_pcoords(self.f_labels[l], self.DP)
+                    self.pscatters[l].set_offsets(np.c_[px_labels, py_labels])
 
         # Prevent view from changing after point is added
         self.set_extent()
@@ -468,10 +461,11 @@ class EchellePlotter:
 
         self.fig.canvas.draw()
 
-    def update_line(self):
+    def update_line(self, l):
         """Update line"""
-        x_line, y_line = self.get_pcoords(self.ppoints, self.DP)
-        self.line.set_data(x_line, y_line)
+        ordered_f = np.sort(self.f_labels[l])
+        x_line, y_line = self.get_pcoords(np.array(ordered_f), self.DP)
+        self.pscatters[l].set_data(x_line, y_line)
         self.fig.canvas.draw()
 
     def get_legend_labels(self):
@@ -551,92 +545,92 @@ class EchellePlotter:
         return 1e6/period
 
 
-def echelle(freq, power, Dnu, fmin=0.0, fmax=None, offset=0.0, sampling=0.1):
-    """Calculates the echelle diagram. Use this function if you want to do
-    some more custom plotting.
+    def echelle(freq, power, Dnu, fmin=0.0, fmax=None, offset=0.0, sampling=0.1):
+        """Calculates the echelle diagram. Use this function if you want to do
+        some more custom plotting.
 
-    Parameters
-    ----------
-    freq : array-like
-        Frequency values
-    power : array-like
-        Power values for every frequency
-    Dnu : float
-        Value of deltanu
-    fmin : float, optional
-        Minimum frequency to calculate the echelle at, by default 0.
-    fmax : float, optional
-        Maximum frequency to calculate the echelle at. If none is supplied,
-        will default to the maximum frequency passed in `freq`, by default None
-    offset : float, optional
-        An offset to apply to the echelle diagram, by default 0.0
+        Parameters
+        ----------
+        freq : array-like
+            Frequency values
+        power : array-like
+            Power values for every frequency
+        Dnu : float
+            Value of deltanu
+        fmin : float, optional
+            Minimum frequency to calculate the echelle at, by default 0.
+        fmax : float, optional
+            Maximum frequency to calculate the echelle at. If none is supplied,
+            will default to the maximum frequency passed in `freq`, by default None
+        offset : float, optional
+            An offset to apply to the echelle diagram, by default 0.0
 
-    Returns
-    -------
-    array-like
-        The x, y, and z values of the echelle diagram.
-    """
-    if fmax == None:
-        fmax = freq[-1]
+        Returns
+        -------
+        array-like
+            The x, y, and z values of the echelle diagram.
+        """
+        if fmax == None:
+            fmax = freq[-1]
 
-    # Apply offset
-    fmin = fmin - offset
-    fmax = fmax - offset
-    freq = freq - offset
+        # Apply offset
+        fmin = fmin - offset
+        fmax = fmax - offset
+        freq = freq - offset
 
-    # Quality of life checks
-    if fmin <= 0.0:
-        fmin = 0.0
-    else:
-        # Make sure it partitions exactly
-        fmin = fmin - (fmin % Dnu)
+        # Quality of life checks
+        if fmin <= 0.0:
+            fmin = 0.0
+        else:
+            # Make sure it partitions exactly
+            fmin = fmin - (fmin % Dnu)
 
-    # trim data
-    index = (freq >= fmin) & (freq <= fmax)
-    trimx = freq[index]
+        # trim data
+        index = (freq >= fmin) & (freq <= fmax)
+        trimx = freq[index]
 
-    # median interval width
-    samplinginterval = np.median(trimx[1:-1] - trimx[0:-2]) * sampling
+        # median interval width
+        samplinginterval = np.median(trimx[1:-1] - trimx[0:-2]) * sampling
 
-    # Fixed sampling interval x values
-    xp = np.arange(fmin, fmax + Dnu, samplinginterval)
+        # Fixed sampling interval x values
+        xp = np.arange(fmin, fmax + Dnu, samplinginterval)
 
-    # Interpolant (approximation) for xp values (given the frequency and power)
-    yp = np.interp(xp, freq, power)
+        # Interpolant (approximation) for xp values (given the frequency and power)
+        yp = np.interp(xp, freq, power)
 
-    # Number of stacks and Number of elements in each stack
-    n_stack = int((fmax - fmin) / Dnu)
-    n_element = int(Dnu / samplinginterval)
+        # Number of stacks and Number of elements in each stack
+        n_stack = int((fmax - fmin) / Dnu)
+        n_element = int(Dnu / samplinginterval)
 
-    # Number of rows for each datapoint (elongate graph)
-    morerow = 2
+        # Number of rows for each datapoint (elongate graph)
+        morerow = 2
 
-    # Array of length = number of stacks
-    arr = np.arange(1, n_stack) * Dnu
+        # Array of length = number of stacks
+        arr = np.arange(1, n_stack) * Dnu
 
-    # Double the size (due to 2 rows?)
-    arr2 = np.array([arr, arr])
+        # Double the size (due to 2 rows?)
+        arr2 = np.array([arr, arr])
 
-    # y-values of each stack - reshape 2 stacks
-    yn = np.reshape(arr2, len(arr) * 2, order="F")
+        # y-values of each stack - reshape 2 stacks
+        yn = np.reshape(arr2, len(arr) * 2, order="F")
 
-    # Ending values - Insert 0 in beginning and append number of stacks * Dnu, plus offsets
-    yn = np.insert(yn, 0, 0.0)
-    yn = np.append(yn, n_stack * Dnu) + fmin + offset
+        # Ending values - Insert 0 in beginning and append number of stacks * Dnu, plus offsets
+        yn = np.insert(yn, 0, 0.0)
+        yn = np.append(yn, n_stack * Dnu) + fmin + offset
 
-    # x values of partition
-    xn = np.arange(1, n_element + 1) / n_element * Dnu
+        # x values of partition
+        xn = np.arange(1, n_element + 1) / n_element * Dnu
 
-    # image as 2D array
-    z = np.zeros([n_stack * morerow, n_element])
+        # image as 2D array
+        z = np.zeros([n_stack * morerow, n_element])
 
-    # Add yp values to rows of image
-    for i in range(n_stack):
-        for j in range(i * morerow, (i + 1) * morerow):
-            # Multiple rows of the same data
-            z[j, :] = yp[n_element * (i) : n_element * (i + 1)]
+        # Add yp values to rows of image
+        for i in range(n_stack):
+            for j in range(i * morerow, (i + 1) * morerow):
+                # Multiple rows of the same data
+                z[j, :] = yp[n_element * (i) : n_element * (i + 1)]
 
-    return xn, yn, z
+        return xn, yn, z
 
 if __name__ == "__main__":
     # Read in csv
