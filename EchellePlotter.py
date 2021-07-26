@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 from astropy.convolution import convolve, Box1DKernel
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 from matplotlib.widgets import Slider, RadioButtons, Button
 
 class EchellePlotter:
@@ -10,7 +9,7 @@ class EchellePlotter:
         freq, power,
         Dnu_min, Dnu_max, fmin=0, fmax=None, step=None,
         plot_period=False, DP_min=None, DP_max=None, pstep=None,
-        cmap="BuPu", colors=None, markers=None,
+        cmap="BuPu", colors={}, markers={}, plot_line=[],
         interpolation=None, smooth=False, smooth_filter_width=50.0, scale=None):
     #==================================================================
     # Class attributes and argument checks
@@ -19,26 +18,18 @@ class EchellePlotter:
         self.fmin = fmin
         self.fmax = fmax
         self.scale = scale
-
+        self.plot_line = plot_line
 
         self.plot_period = plot_period
         if self.plot_period:
             self.DP = (DP_min + DP_max) / 2.0
 
-        # Styles for labels
-        if colors == None:
-            self.colors = {0: "blue", 1: "red", 2: "orange"}
-        else:
-            if len(colors) != 3:
-                raise ValueError("There needs to be 3 colors provided")
-            self.colors = colors
+        # Styles for labels            
+        self.colors = {0: "blue", 1: "red", 2: "orange"}
+        self.colors.update(colors)
 
-        if markers == None:
-            self.markers = {0: "s", 1: "^", 2: "o"}
-        else:
-            if len(markers) != 3:
-                raise ValueError("There needs to be 3 markers provided")            
-            self.markers = markers
+        self.markers = {0: "s", 1: "^", 2: "o"}
+        self.markers.update(markers)
             
         if Dnu_max < Dnu_min:
             raise ValueError("Maximum range for Dnu can not be less than minimum")
@@ -84,7 +75,10 @@ class EchellePlotter:
         else:
             self.fig, self.ax = plt.subplots()
 
-        plt.subplots_adjust(left=0.20, bottom=0.25, wspace=0.05)
+        if self.plot_period:
+            plt.subplots_adjust(left=0.20, right=0.85, bottom=0.25, wspace=0.05)
+        else:
+            plt.subplots_adjust(left=0.20, bottom=0.25)
 
         # Step in x-axis as median difference
         if step is None:
@@ -126,10 +120,6 @@ class EchellePlotter:
         self.create_label_scatters()
         self.cid = self.fig.canvas.mpl_connect("button_press_event", self.on_click)
 
-    #==================================================================
-    # Labelling dotted images
-    #==================================================================
-    # Done in update_scatter
 
 #======================================================================
 # Echelle diagram functionality
@@ -212,7 +202,7 @@ class EchellePlotter:
             self.DP, sampling=1, fmin=self.pmin, fmax=self.pmax)
 
         # Flip the y-axis
-        self.pz = np.flip(self.pz, 1)
+        self.pz = np.flip(self.pz, 0)
 
         # Scale image intensities
         if self.scale is "sqrt":
@@ -288,14 +278,14 @@ class EchellePlotter:
         """Create RadioButtons to select labelling"""
         axcolor = 'white'
         rax = plt.axes([0.02, 0.7, 0.08, 0.15], facecolor=axcolor)
-        self.radio_l = RadioButtons(rax, ('', '$\ell=0$', '$\ell=1$', '$\ell=2$', '---'))
+        self.radio_l = RadioButtons(rax, ('', '$\ell=0$', '$\ell=1$', '$\ell=2$'))
         # self.radio_l = RadioButtons(rax, ('', '$\ell=0$', '$\ell=1$', '$\ell=2$', '---'))
 
     def create_remove_label_button(self):
         """Create Button to remove last label"""
         axcolor = 'white'
         rax = plt.axes([0.02, 0.4, 0.08, 0.15], facecolor=axcolor)
-        self.undo_point_button = Button(rax, "\u27f2 Label")
+        self.undo_point_button = Button(rax, "\u27f2 Undo")
         self.undo_point_button.on_clicked(self.remove_previous_label)
 
     def on_click(self, event):
@@ -314,12 +304,7 @@ class EchellePlotter:
 
         # Coordinate of clicks on the image array
         x, y = event.xdata, event.ydata
-
         if click_in_f_plot:
-            # Manually adding lines
-            if l_mode == "---":
-                return
-
             # l mode integer
             l = self.get_l_mode_choice(l_mode)
 
@@ -341,26 +326,18 @@ class EchellePlotter:
             # Find y that are just below our cursor
             nearest_y = self.py[self.py-y < 0].max()
             f = self.coord2freq(self.px[nearest_x_index], nearest_y, period=True)
-
-            # Dotted images
-            if l_mode == "---":
-                self.add_line(f)
                 
             # Point labelling
-            else:
-                l = self.get_l_mode_choice(l_mode)
-                py_inc = self.py[1] - self.py[0]
+            l = self.get_l_mode_choice(l_mode)
+            py_inc = self.py[1] - self.py[0]
 
-                self.add_point(f, l)
+            self.add_point(f, l)
 
     def add_point(self, f, l):
         """Add point to the plot and update scatter"""
         self.f_labels[l].append(f)
         self.l_labels.append(l)
         self.update_scatter(l)
-
-        if l == 1:
-            self.update_line(l)
 
     def remove_previous_label(self, event):
         """Removes the previously added point"""
@@ -425,13 +402,14 @@ class EchellePlotter:
             # Period coordinates
             if self.plot_period:
                 # Line instead of scatter plot
-                if l == 1:
+                if l in self.plot_line:
                     # Connect dots in ascending frequency order
                     ordered_f = np.sort(self.f_labels[l])
                     x_line, y_line = self.get_pcoords(np.array(ordered_f), self.DP)
 
                     # Only gets plot when expanded as tuple
-                    self.pscatters[l], = self.pax.plot([],[],'b^--',label=None)
+                    self.pscatters[l], = self.pax.plot([],[], "--",
+                        color=self.colors[l], marker=self.markers[l])
                 else:
                     px_labels, py_labels = self.get_pcoords(self.f_labels[l], self.DP)
                     self.pscatters[l] = self.pax.scatter(px_labels, py_labels, 
@@ -445,7 +423,7 @@ class EchellePlotter:
             self.scatters[l].set_offsets(np.c_[x_labels, y_labels])
             
             if self.plot_period:
-                if type(self.pscatters[l]) == Line2D:
+                if l in self.plot_line:
                     self.update_line(l)
                 else:                
                     px_labels, py_labels = self.get_pcoords(self.f_labels[l], self.DP)
@@ -632,6 +610,7 @@ class EchellePlotter:
 
         return xn, yn, z
 
+
 if __name__ == "__main__":
     # Read in csv
     lc_df = pd.read_csv("data/KIC9773821_LC.csv")
@@ -661,7 +640,8 @@ if __name__ == "__main__":
         fmin=fmin, fmax=fmax,
         plot_period=True,  DP_min=DP-10, DP_max=DP+10, pstep=0.1,
         colors={0:"red", 1:"blue", 2:"red"},
-        markers={0: "o", 1:"^", 2:"s"})
+        markers={0: "o", 1:"^", 2:"s"},
+        plot_line=[1])
     e.show()
 
 
