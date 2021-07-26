@@ -170,10 +170,8 @@ class EchellePlotter:
                 # From coordinates to frequency
                 f = self.coord_to_freq(self.x_labels[l][i], self.y_labels[l][i])
 
-                # print(f"({self.x_labels[l][i]}, {self.y_labels[l][i]}) -> {f}")
                 # Get new coordinates
                 x, y = self.freq_to_coord(f, Dnu)
-                # print(f"{f} -> ({x}, {y})")
                 self.x_labels[l][i] = x
                 self.y_labels[l][i] = y
 
@@ -217,8 +215,8 @@ class EchellePlotter:
         # Find the nearest x and y value in self.x and self.y
         nearest_x_index = (np.abs(self.x-x)).argmin()
 
-        # Find y that are just above our cursor
-        nearest_y = self.y[self.y-y > 0].min()
+        # Find y that are just below our cursor
+        nearest_y = self.y[self.y-y < 0].max()
 
         self.add_point(self.x[nearest_x_index], nearest_y, l)
 
@@ -259,8 +257,11 @@ class EchellePlotter:
             # Update scatter plots based on l_labels
             color = self.colors[l]
             marker = self.markers[l]
-            label = f"l={l}"           
-            self.scatters[l] = self.ax.scatter(self.x_labels[l], self.y_labels[l], s=50,
+            label = f"l={l}"
+
+            # Increase y by half increment to label in middle of the stripes
+            self.scatters[l] = self.ax.scatter(self.x_labels[l], 
+                np.array(self.y_labels[l]) + 0.5*(self.y[1] - self.y[0]), s=50,
                 marker=marker, label=label,
                 color=color)
             
@@ -272,10 +273,28 @@ class EchellePlotter:
             if label not in self.legend_labels:
                 self.legend_labels.append(f"l={l}")
         else:
-            self.scatters[l].set_offsets(np.c_[self.x_labels[l], self.y_labels[l]])
+            # Increase y by half increment to label in middle of the stripes
+            self.scatters[l].set_offsets(np.c_[self.x_labels[l], 
+                np.array(self.y_labels[l]) + 0.5*(self.y[1] - self.y[0])])
         
         self.ax.legend(self.legend_labels)
         self.fig.canvas.draw()
+
+
+    def freq_to_period(self, freq):
+        """From frequency (muHz) to period (s)"""
+        return 1e6/freq
+
+    def period_to_freq(self, period):
+        """From period (s) to frequency (muHz)"""
+        return 1e6/period
+
+    def period_to_coord(self, period, DP):
+        """Period to coordinate on the Echelle period"""
+        y_inc = self.y[1] - self.y[0]
+        x = (freq - self.x.min()) % Dnu# freq mod Dnu is x-coordinate
+        y = self.y[self.y < freq].max()# The bin just below the frequency is y-coordinate
+        return x, y
 
 
     def freq_to_coord(self, freq, Dnu):

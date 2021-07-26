@@ -1,3 +1,7 @@
+data
+echelle-module
+echelle_fork
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
