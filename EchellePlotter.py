@@ -9,7 +9,8 @@ class EchellePlotter:
         freq, power,
         Dnu_min, Dnu_max, fmin=0, fmax=None, step=None,
         plot_period=False, DP_min=None, DP_max=None, pstep=None,
-        cmap="BuPu", colors={}, markers={}, plot_line=[],
+        cmap="BuPu", colors={}, markers={}, plot_line=[], size=50, 
+        figsize=(6.4, 4.8), dpi=100,
         interpolation=None, smooth=False, smooth_filter_width=50.0, scale=None):
     #==================================================================
     # Class attributes and argument checks
@@ -19,9 +20,15 @@ class EchellePlotter:
         self.fmax = fmax
         self.scale = scale
         self.plot_line = plot_line
+        self.size = size
 
         self.plot_period = plot_period
         if self.plot_period:
+            if DP_min == None or DP_max == None:
+                raise Exception("Must provide DP_min and DP_max when plotting period echelle")
+            if pstep == None:
+                raise Exception("Step of period echelle slider (pstep) must be provided")
+
             self.DP = (DP_min + DP_max) / 2.0
 
         # Styles for labels            
@@ -41,16 +48,15 @@ class EchellePlotter:
         if smooth_filter_width < 1:
             raise ValueError("The smooth filter width can not be less than 1!")
 
-        # Smoothen power spectrum
-        if smooth:
-            self.power = smooth_power(power, smooth_filter_width)
-
         self.freq = freq
         self.power = power
 
     #==================================================================
     # Data preparation
     #==================================================================
+        if smooth:
+            self.power = EchellePlotter.smooth_power(self.power, smooth_filter_width)
+
         self.update_echelle()
         if self.plot_period:
             # Minimum frequency is maximum period
@@ -64,7 +70,7 @@ class EchellePlotter:
     #==================================================================
         # Create subplot(s)
         if self.plot_period:
-            self.fig, self.axs = plt.subplots(1, 2)
+            self.fig, self.axs = plt.subplots(1, 2, figsize=figsize, dpi=dpi)
             self.ax = self.axs[0]
             self.pax = self.axs[1]
 
@@ -73,7 +79,7 @@ class EchellePlotter:
             self.pax.yaxis.tick_right()
 
         else:
-            self.fig, self.ax = plt.subplots()
+            self.fig, self.ax = plt.subplots(figsize=figsize, dpi=dpi)
 
         if self.plot_period:
             plt.subplots_adjust(left=0.20, right=0.85, bottom=0.25, wspace=0.05)
@@ -397,7 +403,7 @@ class EchellePlotter:
             # Get frequency coordinates
             x_labels, y_labels = self.get_coords(self.f_labels[l], self.Dnu)
             self.scatters[l] = self.ax.scatter(x_labels, y_labels, 
-                s=50, marker=marker, label=label, color=color)
+                s=self.size, marker=marker, label=label, color=color)
 
             # Period coordinates
             if self.plot_period:
@@ -514,6 +520,10 @@ class EchellePlotter:
         """Show plot using plt.show()"""
         plt.show()
 
+    def savefig(self, *args, **kwargs):
+        """Save plot using plt.savefig()"""
+        plt.savefig(*args, **kwargs)
+
     def f2p(self, freq):
         """From frequency (muHz) to period (s)"""
         return 1e6/freq
@@ -521,7 +531,6 @@ class EchellePlotter:
     def p2f(self, period):
         """From period (s) to frequency (muHz)"""
         return 1e6/period
-
 
     def echelle(freq, power, Dnu, fmin=0.0, fmax=None, offset=0.0, sampling=0.1):
         """Calculates the echelle diagram. Use this function if you want to do
@@ -609,6 +618,23 @@ class EchellePlotter:
                 z[j, :] = yp[n_element * (i) : n_element * (i + 1)]
 
         return xn, yn, z
+
+    def smooth_power(power, smooth_filter_width):
+        """Smooths the input power array with a Box1DKernel from astropy
+
+        Parameters
+        ----------
+        power : array-like
+            Array of power values
+        smooth_filter_width : float
+            filter width
+
+        Returns
+        -------
+        array-like
+            Smoothed power
+        """
+        return convolve(power, Box1DKernel(smooth_filter_width))
 
 
 if __name__ == "__main__":
