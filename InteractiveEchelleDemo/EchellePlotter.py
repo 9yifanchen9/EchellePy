@@ -9,11 +9,12 @@ class EchellePlotter:
         freq, power,
         Dnu_min, Dnu_max, fmin=0, fmax=None, step=None,
         plot_period=False, DP_min=None, DP_max=None, pstep=None,
-        cmap="BuPu", colors={}, markers={}, plot_line=[], size=50,
-        interpolation=None, smooth=False, smooth_filter_width=50.0, scale=None):
+        cmap="BuPu", colors={}, markers={}, plot_line=[], size=50, 
+        interpolation=None, smooth=False, smooth_filter_width=50.0, scale=None, **kwargs):
     #==================================================================
     # Class attributes and argument checks
     #==================================================================
+        self.kwargs = kwargs
         self.Dnu = (Dnu_min + Dnu_max) / 2.0
         self.fmin = fmin
         self.fmax = fmax
@@ -23,6 +24,11 @@ class EchellePlotter:
 
         self.plot_period = plot_period
         if self.plot_period:
+            if DP_min == None or DP_max == None:
+                raise Exception("Must provide DP_min and DP_max when plotting period echelle")
+            if pstep == None:
+                raise Exception("Step of period echelle slider (pstep) must be provided")
+
             self.DP = (DP_min + DP_max) / 2.0
 
         # Styles for labels            
@@ -42,16 +48,15 @@ class EchellePlotter:
         if smooth_filter_width < 1:
             raise ValueError("The smooth filter width can not be less than 1!")
 
-        # Smoothen power spectrum
-        if smooth:
-            self.power = smooth_power(power, smooth_filter_width)
-
         self.freq = freq
         self.power = power
 
     #==================================================================
     # Data preparation
     #==================================================================
+        if smooth:
+            self.power = EchellePlotter.smooth_power(self.power, smooth_filter_width)
+
         self.update_echelle()
         if self.plot_period:
             # Minimum frequency is maximum period
@@ -65,7 +70,7 @@ class EchellePlotter:
     #==================================================================
         # Create subplot(s)
         if self.plot_period:
-            self.fig, self.axs = plt.subplots(1, 2)
+            self.fig, self.axs = plt.subplots(1, 2, **self.kwargs)
             self.ax = self.axs[0]
             self.pax = self.axs[1]
 
@@ -74,7 +79,7 @@ class EchellePlotter:
             self.pax.yaxis.tick_right()
 
         else:
-            self.fig, self.ax = plt.subplots()
+            self.fig, self.ax = plt.subplots(**self.kwargs)
 
         if self.plot_period:
             plt.subplots_adjust(left=0.20, right=0.85, bottom=0.25, wspace=0.05)
@@ -111,7 +116,6 @@ class EchellePlotter:
         self.create_remove_label_button()
         # A list of l-mode values (used for removing points)
         self.l_labels = []
-        self.legend_labels = []
 
         # List of 3 arrays, with index being l-mode label
         # e.g. label_[1][2] is 3rd frequency for l=1 mode label
@@ -189,26 +193,26 @@ class EchellePlotter:
     def update_echelle(self):
         """Get new period echelle"""
         self.x, self.y, self.z = EchellePlotter.echelle(self.freq, self.power, self.Dnu, 
-            sampling=1, fmin=self.fmin, fmax=self.fmax)
+            sampling=1, fmin=self.fmin, fmax=self.fmax, **self.kwargs)
         # Scale image intensities
-        if self.scale is "sqrt":
+        if self.scale == "sqrt":
             self.z = np.sqrt(self.z)
-        elif self.scale is "log":
+        elif self.scale == "log":
             self.z = np.log10(self.z)
 
     def update_period_echelle(self):
         """Get new period echelle"""
         # Ascending period to feed into echelle
         self.px, self.py, self.pz = EchellePlotter.echelle(self.period[::-1], self.power[::-1], 
-            self.DP, sampling=1, fmin=self.pmin, fmax=self.pmax)
+            self.DP, sampling=1, fmin=self.pmin, fmax=self.pmax, **self.kwargs)
 
         # Flip the y-axis
         self.pz = np.flip(self.pz, 0)
 
         # Scale image intensities
-        if self.scale is "sqrt":
+        if self.scale == "sqrt":
             self.pz = np.sqrt(self.pz)
-        elif self.scale is "log":
+        elif self.scale == "log":
             self.pz = np.log10(self.pz)
 
     def update(self, Dnu):
@@ -386,7 +390,6 @@ class EchellePlotter:
                 self.pscatters[l].remove()
                 self.pscatters[l] = None
 
-            self.legend_labels.remove(f"l={l}")
 
         # First label of the mode
         elif has_label_no_scatter:
@@ -410,15 +413,12 @@ class EchellePlotter:
 
                     # Only gets plot when expanded as tuple
                     self.pscatters[l], = self.pax.plot([],[], "--",
-                        color=self.colors[l], marker=self.markers[l])
+                        color=self.colors[l], marker=self.markers[l], label=label)
                 else:
                     px_labels, py_labels = self.get_pcoords(self.f_labels[l], self.DP)
                     self.pscatters[l] = self.pax.scatter(px_labels, py_labels, 
                         s=50, marker=marker, label=label, color=color)
 
-            # Legend labels
-            if label not in self.legend_labels:
-                self.legend_labels.append(f"l={l}")
         else:
             x_labels, y_labels = self.get_coords(self.f_labels[l], self.Dnu)
             self.scatters[l].set_offsets(np.c_[x_labels, y_labels])
@@ -432,11 +432,14 @@ class EchellePlotter:
 
         # Prevent view from changing after point is added
         self.set_extent()
-        self.ax.legend(self.legend_labels)
+
+        if self.has_scatter():
+            self.ax.legend(loc='best')
 
         if self.plot_period:
             self.set_pextent()
-            self.pax.legend(self.legend_labels)
+            if self.has_scatter():
+                self.pax.legend(loc='best')
 
         self.fig.canvas.draw()
 
@@ -459,6 +462,13 @@ class EchellePlotter:
         elif choice == '$\ell=2$':
             return 2
         return -1
+
+    def has_scatter(self):
+        for s in self.scatters:
+            if s != None:
+                return True
+
+        return False
 
     def get_coords(self, freqs, Dnu):
         """From frequency to frequency coordinates"""
@@ -527,8 +537,7 @@ class EchellePlotter:
         """From period (s) to frequency (muHz)"""
         return 1e6/period
 
-
-    def echelle(freq, power, Dnu, fmin=0.0, fmax=None, offset=0.0, sampling=0.1):
+    def echelle(freq, power, Dnu, fmin=0.0, fmax=None, offset=0.0, sampling=0.1, **kwargs):
         """Calculates the echelle diagram. Use this function if you want to do
         some more custom plotting.
 
@@ -614,6 +623,23 @@ class EchellePlotter:
                 z[j, :] = yp[n_element * (i) : n_element * (i + 1)]
 
         return xn, yn, z
+
+    def smooth_power(power, smooth_filter_width):
+        """Smooths the input power array with a Box1DKernel from astropy
+
+        Parameters
+        ----------
+        power : array-like
+            Array of power values
+        smooth_filter_width : float
+            filter width
+
+        Returns
+        -------
+        array-like
+            Smoothed power
+        """
+        return convolve(power, Box1DKernel(smooth_filter_width))
 
 
 if __name__ == "__main__":
