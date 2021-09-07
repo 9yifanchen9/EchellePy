@@ -10,11 +10,11 @@ class EchellePlotter:
         Dnu_min, Dnu_max, fmin=0, fmax=None, step=None,
         plot_period=False, DP_min=None, DP_max=None, pstep=None,
         cmap="BuPu", colors={}, markers={}, plot_line=[], size=50, 
-        interpolation=None, smooth=False, smooth_filter_width=50.0, scale=None, **kwargs):
+        figsize=(6.4, 4.8), dpi=100,
+        interpolation=None, smooth=False, smooth_filter_width=50.0, scale=None):
     #==================================================================
     # Class attributes and argument checks
     #==================================================================
-        self.kwargs = kwargs
         self.Dnu = (Dnu_min + Dnu_max) / 2.0
         self.fmin = fmin
         self.fmax = fmax
@@ -70,7 +70,7 @@ class EchellePlotter:
     #==================================================================
         # Create subplot(s)
         if self.plot_period:
-            self.fig, self.axs = plt.subplots(1, 2, **self.kwargs)
+            self.fig, self.axs = plt.subplots(1, 2, figsize=figsize, dpi=dpi)
             self.ax = self.axs[0]
             self.pax = self.axs[1]
 
@@ -79,7 +79,7 @@ class EchellePlotter:
             self.pax.yaxis.tick_right()
 
         else:
-            self.fig, self.ax = plt.subplots(**self.kwargs)
+            self.fig, self.ax = plt.subplots(figsize=figsize, dpi=dpi)
 
         if self.plot_period:
             plt.subplots_adjust(left=0.20, right=0.85, bottom=0.25, wspace=0.05)
@@ -113,9 +113,11 @@ class EchellePlotter:
     # Labelling point
     #==================================================================
         self.create_label_radio_buttons()
-        self.create_remove_label_button()
+        # self.create_remove_label_button()
+
         # A list of l-mode values (used for removing points)
-        self.l_labels = []
+        self.labels = 0
+        self.legend_labels = []
 
         # List of 3 arrays, with index being l-mode label
         # e.g. label_[1][2] is 3rd frequency for l=1 mode label
@@ -193,7 +195,7 @@ class EchellePlotter:
     def update_echelle(self):
         """Get new period echelle"""
         self.x, self.y, self.z = EchellePlotter.echelle(self.freq, self.power, self.Dnu, 
-            sampling=1, fmin=self.fmin, fmax=self.fmax, **self.kwargs)
+            sampling=1, fmin=self.fmin, fmax=self.fmax)
         # Scale image intensities
         if self.scale == "sqrt":
             self.z = np.sqrt(self.z)
@@ -204,7 +206,7 @@ class EchellePlotter:
         """Get new period echelle"""
         # Ascending period to feed into echelle
         self.px, self.py, self.pz = EchellePlotter.echelle(self.period[::-1], self.power[::-1], 
-            self.DP, sampling=1, fmin=self.pmin, fmax=self.pmax, **self.kwargs)
+            self.DP, sampling=1, fmin=self.pmin, fmax=self.pmax)
 
         # Flip the y-axis
         self.pz = np.flip(self.pz, 0)
@@ -250,7 +252,8 @@ class EchellePlotter:
         self.fig.canvas.blit(self.pax.bbox)
 
     def on_key_press(self, event):
-        """Key press to shift slider left and right"""
+        """Key press to shift slider left and right
+        or to access tool bar faster"""
         key = event.key.lower()
         if key == "left" or key == "right":
             if key == "left":
@@ -269,6 +272,18 @@ class EchellePlotter:
             self.pslider.set_val(new_DP)
             self.pupdate(new_DP)
 
+        # Select remove tool
+        elif key == 'r':
+            self.radio_l.set_active(4)
+
+        # Select l mode label tool
+        elif key.isdigit():
+            self.radio_l.set_active(int(key)+1)
+
+        # Unselect tool
+        elif key == 'escape':
+            self.radio_l.set_active(0)
+
 #======================================================================
 # Point and line Labelling
 #======================================================================
@@ -283,7 +298,7 @@ class EchellePlotter:
         """Create RadioButtons to select labelling"""
         axcolor = 'white'
         rax = plt.axes([0.02, 0.7, 0.08, 0.15], facecolor=axcolor)
-        self.radio_l = RadioButtons(rax, ('', '$\ell=0$', '$\ell=1$', '$\ell=2$'))
+        self.radio_l = RadioButtons(rax, ('', '$\ell=0$', '$\ell=1$', '$\ell=2$', 'remove'))
         # self.radio_l = RadioButtons(rax, ('', '$\ell=0$', '$\ell=1$', '$\ell=2$', '---'))
 
     def create_remove_label_button(self):
@@ -304,25 +319,52 @@ class EchellePlotter:
             click_in_p_plot = False
 
         l_mode = self.radio_l.value_selected
+
         if not (click_in_f_plot or click_in_p_plot) or l_mode == "":
             return
 
         # Coordinate of clicks on the image array
         x, y = event.xdata, event.ydata
-        if click_in_f_plot:
-            # l mode integer
-            l = self.get_l_mode_choice(l_mode)
 
-            y_inc = self.y[1] - self.y[0]
+        # Remove current selected frequency
+        if l_mode == "remove":
+            if click_in_f_plot:
+                y_inc = self.y[1] - self.y[0]
 
+                # Find the nearest x and y value in self.x and self.y
+                nearest_x_index = (np.abs(self.x-x)).argmin()
+
+                # Find y that are just below our cursor
+                nearest_y = self.y[self.y-y < 0].max()
+
+                f = self.coord2freq(self.x[nearest_x_index], nearest_y)
+                self.remove_point(f)
+
+            elif click_in_p_plot:
+                # Find the nearest x and y value in self.x and self.y
+                nearest_x_index = (np.abs(self.px-x)).argmin()
+
+                # Find y that are just below our cursor
+                nearest_y = self.py[self.py-y < 0].max()
+                f = self.coord2freq(self.px[nearest_x_index], nearest_y, period=True)
+                    
+                # Point labelling
+                py_inc = self.py[1] - self.py[0]
+
+                self.remove_point(f, period=True)
+
+        elif click_in_f_plot:
             # Find the nearest x and y value in self.x and self.y
             nearest_x_index = (np.abs(self.x-x)).argmin()
 
             # Find y that are just below our cursor
             nearest_y = self.y[self.y-y < 0].max()
 
+            # Point labelling
             f = self.coord2freq(self.x[nearest_x_index], nearest_y)
+            l = self.get_l_mode_choice(l_mode)
             self.add_point(f, l)
+            print(f)
 
         elif click_in_p_plot:
             # Find the nearest x and y value in self.x and self.y
@@ -334,24 +376,50 @@ class EchellePlotter:
                 
             # Point labelling
             l = self.get_l_mode_choice(l_mode)
-            py_inc = self.py[1] - self.py[0]
-
             self.add_point(f, l)
 
     def add_point(self, f, l):
         """Add point to the plot and update scatter"""
         self.f_labels[l].append(f)
-        self.l_labels.append(l)
         self.update_scatter(l)
+        self.labels += 1
 
-    def remove_previous_label(self, event):
-        """Removes the previously added point"""
-        if len(self.l_labels) == 0:
+    def remove_point(self, f, period=False):
+        """Removes point with given frequency"""
+        if self.labels == 0:
             return
 
-        l = self.l_labels.pop()
-        self.f_labels[l].pop()
-        self.update_scatter(l)
+        # Find the label close to this frequency
+        min_diff = 1000
+        if period:
+            x0, y0 = self.p2coord(self.f2p(f), self.DP)
+        else:
+            x0, y0 = self.f2coord(f, self.Dnu)
+
+        min_l = 0
+        min_i = 0
+        for l, ls in enumerate(self.f_labels):
+            for i, freq in enumerate(ls):
+                # Calculate distance on plot
+                if period:
+                    x, y = self.p2coord(self.f2p(freq), self.DP)
+                else:
+                    x, y = self.f2coord(freq, self.Dnu)
+
+                diff = (x-x0)**2 + (y-y0)**2
+                if diff < min_diff:
+                    min_diff = diff
+                    min_l = l
+                    min_i = i
+
+        # Does not have corresponding frequency label
+        if min_diff > 2:
+            return
+
+        # Remove label
+        self.f_labels[min_l].pop(min_i)
+        self.update_scatter(min_l)
+        self.labels -= 1
 
     def set_extent(self):
         """Set new visible range for x and y axes of frequency echelle"""
@@ -390,10 +458,11 @@ class EchellePlotter:
                 self.pscatters[l].remove()
                 self.pscatters[l] = None
 
+            self.legend_labels.remove(f"l={l}")
 
         # First label of the mode
         elif has_label_no_scatter:
-            # Update scatter plots based on l_labels
+            # Update scatter plots based on l value
             color = self.colors[l]
             marker = self.markers[l]
             label = f"l={l}"
@@ -413,12 +482,15 @@ class EchellePlotter:
 
                     # Only gets plot when expanded as tuple
                     self.pscatters[l], = self.pax.plot([],[], "--",
-                        color=self.colors[l], marker=self.markers[l], label=label)
+                        color=self.colors[l], marker=self.markers[l])
                 else:
                     px_labels, py_labels = self.get_pcoords(self.f_labels[l], self.DP)
                     self.pscatters[l] = self.pax.scatter(px_labels, py_labels, 
                         s=50, marker=marker, label=label, color=color)
 
+            # Legend labels
+            if label not in self.legend_labels:
+                self.legend_labels.append(f"l={l}")
         else:
             x_labels, y_labels = self.get_coords(self.f_labels[l], self.Dnu)
             self.scatters[l].set_offsets(np.c_[x_labels, y_labels])
@@ -432,14 +504,11 @@ class EchellePlotter:
 
         # Prevent view from changing after point is added
         self.set_extent()
-
-        if self.has_scatter():
-            self.ax.legend(loc='best')
+        self.ax.legend(self.legend_labels)
 
         if self.plot_period:
             self.set_pextent()
-            if self.has_scatter():
-                self.pax.legend(loc='best')
+            self.pax.legend(self.legend_labels)
 
         self.fig.canvas.draw()
 
@@ -462,13 +531,6 @@ class EchellePlotter:
         elif choice == '$\ell=2$':
             return 2
         return -1
-
-    def has_scatter(self):
-        for s in self.scatters:
-            if s != None:
-                return True
-
-        return False
 
     def get_coords(self, freqs, Dnu):
         """From frequency to frequency coordinates"""
@@ -537,7 +599,7 @@ class EchellePlotter:
         """From period (s) to frequency (muHz)"""
         return 1e6/period
 
-    def echelle(freq, power, Dnu, fmin=0.0, fmax=None, offset=0.0, sampling=0.1, **kwargs):
+    def echelle(freq, power, Dnu, fmin=0.0, fmax=None, offset=0.0, sampling=0.1):
         """Calculates the echelle diagram. Use this function if you want to do
         some more custom plotting.
 
@@ -644,8 +706,8 @@ class EchellePlotter:
 
 if __name__ == "__main__":
     # Read in csv
-    lc_df = pd.read_csv("data/KIC9773821_LC.csv")
-    ps_df = pd.read_csv("data/KIC9773821_PS.csv")
+    lc_df = pd.read_csv("data/yu-lowest-mass/11502092_LC.csv", sep='\t', names=['time', 'flux'])
+    ps_df = pd.read_csv("data/yu-lowest-mass/11502092_PS.csv", sep='\t', names=['freq', 'pows'])
 
     # Prepare numpy array data
     time = lc_df.time.to_numpy()
@@ -656,20 +718,19 @@ if __name__ == "__main__":
 
     amp = np.sqrt(pows)
     df=freq[1]-freq[0]
-    smooth = .1/df  # in muHz
-    amp=convolve(amp, Box1DKernel(smooth))
-    
+    # smooth = .1/df  # in muHz
+    # amp=convolve(amp, Box1DKernel(smooth))
 
-    Dnu = 8.10 # large frequency separation (muHz)
-    fmin = 102 - 30
-    fmax = 102 + 30
+    Dnu = 5 # large frequency separation (muHz)
+    fmin = 15
+    fmax = 45
 
     # Change to period
-    DP = 194.0 # period spacing
+    DP = 295.6 # period spacing
 
     e = EchellePlotter(freq, amp, Dnu_min=Dnu-3, Dnu_max=Dnu+3, step=.05,
         fmin=fmin, fmax=fmax,
-        plot_period=True,  DP_min=DP-10, DP_max=DP+10, pstep=0.1,
+        plot_period=True,  DP_min=DP-50, DP_max=DP+50, pstep=0.1,
         colors={0:"red", 1:"blue", 2:"red"},
         markers={0: "o", 1:"^", 2:"s"},
         plot_line=[1])
