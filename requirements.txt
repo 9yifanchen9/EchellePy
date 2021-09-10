@@ -4,3 +4,4 @@ matplotlib
 lightkurve
 astropy
 bokeh
+tk

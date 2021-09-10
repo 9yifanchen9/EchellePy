@@ -4,6 +4,9 @@ from astropy.convolution import convolve, Box1DKernel
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, RadioButtons, Button
 import json
+import tkinter
+from tkinter.filedialog import askopenfilename
+
 
 class EchellePlotter:
     def __init__(self,     
@@ -120,15 +123,16 @@ class EchellePlotter:
         self.labels = 0
         self.legend_labels = []
 
-        # List of 3 arrays, with index being l-mode label
+        # Dictionary of lists, with index being l-mode label
         # e.g. label_[1][2] is 3rd frequency for l=1 mode label
-        self.f_labels = [[],[],[]]
+        self.f_labels = {0:[], 1:[], 2:[]}
 
         # 3 scatter plots corresponding to l-mode labels
         self.create_label_scatters()
         self.cid = self.fig.canvas.mpl_connect("button_press_event", self.on_click)
 
         self.create_save_button()
+        self.create_load_button()
 
 
 #======================================================================
@@ -311,6 +315,14 @@ class EchellePlotter:
             ax_save,
             "Save",)
         self.save_button.on_clicked(self.save_button_clicked)
+
+    def create_load_button(self):
+        """Press to chose file and call import_points"""
+        ax_save = plt.axes([0.02, 0.2, 0.08, 0.08])
+        self.load_button = Button(
+            ax_save,
+            "Load",)
+        self.load_button.on_clicked(self.load_button_clicked)
 
     def create_remove_label_button(self):
         """Create Button to remove last label [NOT USED YET]"""
@@ -714,22 +726,44 @@ class EchellePlotter:
         """
         return convolve(power, Box1DKernel(smooth_filter_width))
 
+    def load_button_clicked(self, events):
+        """Choose file to load label points"""
+        tkinter.Tk().withdraw()
+        filename = askopenfilename()
+        self.import_points(filename)
+        for l in range(3):
+            self.update_scatter(l)
+
+    def import_points(self, filename):
+        """Read f_labels from json file"""
+        # File chooser was cancelled
+        if filename == "":
+            return
+
+        with open(filename, "r") as f:
+            data = json.load(f)
+
+        # Assign values to the dictionary
+        # f_labels have integers as key, but json reads keys as strings
+        self.f_labels[0] = data['0']
+        self.f_labels[1] = data['1']
+        self.f_labels[2] = data['2']
+
     def save_button_clicked(self, events):
         """Wrapper for export_points when button clicked"""
         self.export_points()
 
+        tkinter.Tk().withdraw()
+        tkinter.messagebox.showinfo("EchellePlotter", "Points saved!")
+
     def export_points(self, filename="labelled_points.json"):
         """Export all labelled points to a json file"""
-        json_obj = {}
-        for i in range(3):
-            json_obj[i] = self.f_labels[i]
-
         with open(filename, "w") as f:
-            json.dump(json_obj, f)
+            json.dump(self.f_labels, f)
 
 if __name__ == "__main__":
     # Read in csv
-    ps_df = pd.read_csv("data/yu-lowest-mass/11502092_PS.csv", sep='\t', names=['freq', 'pows'])
+    ps_df = pd.read_csv("data/11502092_PS.csv", sep='\t', names=['freq', 'pows'])
 
     # Prepare numpy array data
     freq = ps_df.freq.to_numpy()
