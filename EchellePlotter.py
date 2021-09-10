@@ -3,6 +3,7 @@ import pandas as pd
 from astropy.convolution import convolve, Box1DKernel
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, RadioButtons, Button
+import json
 
 class EchellePlotter:
     def __init__(self,     
@@ -110,7 +111,7 @@ class EchellePlotter:
             self.create_DP_slider(DP_min, DP_max, pstep)
 
     #==================================================================
-    # Labelling point
+    # Labelling point and saving
     #==================================================================
         self.create_label_radio_buttons()
         # self.create_remove_label_button()
@@ -126,6 +127,8 @@ class EchellePlotter:
         # 3 scatter plots corresponding to l-mode labels
         self.create_label_scatters()
         self.cid = self.fig.canvas.mpl_connect("button_press_event", self.on_click)
+
+        self.create_save_button()
 
 
 #======================================================================
@@ -301,8 +304,16 @@ class EchellePlotter:
         self.radio_l = RadioButtons(rax, ('', '$\ell=0$', '$\ell=1$', '$\ell=2$', 'remove'))
         # self.radio_l = RadioButtons(rax, ('', '$\ell=0$', '$\ell=1$', '$\ell=2$', '---'))
 
+    def create_save_button(self):
+        """Press to call export_points"""
+        ax_save = plt.axes([0.02, 0.4, 0.08, 0.08])
+        self.save_button = Button(
+            ax_save,
+            "Save",)
+        self.save_button.on_clicked(self.save_button_clicked)
+
     def create_remove_label_button(self):
-        """Create Button to remove last label"""
+        """Create Button to remove last label [NOT USED YET]"""
         axcolor = 'white'
         rax = plt.axes([0.02, 0.4, 0.08, 0.15], facecolor=axcolor)
         self.undo_point_button = Button(rax, "\u27f2 Undo")
@@ -503,11 +514,11 @@ class EchellePlotter:
                     self.pscatters[l].set_offsets(np.c_[px_labels, py_labels])
 
         # Prevent view from changing after point is added
-        self.set_extent()
+        # self.set_extent()
         self.ax.legend(self.legend_labels)
 
         if self.plot_period:
-            self.set_pextent()
+            # self.set_pextent()
             self.pax.legend(self.legend_labels)
 
         self.fig.canvas.draw()
@@ -703,16 +714,24 @@ class EchellePlotter:
         """
         return convolve(power, Box1DKernel(smooth_filter_width))
 
+    def save_button_clicked(self, events):
+        """Wrapper for export_points when button clicked"""
+        self.export_points()
+
+    def export_points(self, filename="labelled_points.json"):
+        """Export all labelled points to a json file"""
+        json_obj = {}
+        for i in range(3):
+            json_obj[i] = self.f_labels[i]
+
+        with open(filename, "w") as f:
+            json.dump(json_obj, f)
 
 if __name__ == "__main__":
     # Read in csv
-    lc_df = pd.read_csv("data/yu-lowest-mass/11502092_LC.csv", sep='\t', names=['time', 'flux'])
     ps_df = pd.read_csv("data/yu-lowest-mass/11502092_PS.csv", sep='\t', names=['freq', 'pows'])
 
     # Prepare numpy array data
-    time = lc_df.time.to_numpy()
-    flux = lc_df.flux.to_numpy()
-
     freq = ps_df.freq.to_numpy()
     pows = ps_df.pows.to_numpy()
 
