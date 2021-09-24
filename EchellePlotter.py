@@ -121,7 +121,6 @@ class EchellePlotter:
 
         # A list of l-mode values (used for removing points)
         self.labels = 0
-        self.legend_labels = []
 
         # Dictionary of lists, with index being l-mode label
         # e.g. label_[1][2] is 3rd frequency for l=1 mode label
@@ -387,7 +386,7 @@ class EchellePlotter:
             f = self.coord2freq(self.x[nearest_x_index], nearest_y)
             l = self.get_l_mode_choice(l_mode)
             self.add_point(f, l)
-            print(f)
+            print(f"freq={f:.3f}")
 
         elif click_in_p_plot:
             # Find the nearest x and y value in self.x and self.y
@@ -396,7 +395,7 @@ class EchellePlotter:
             # Find y that are just below our cursor
             nearest_y = self.py[self.py-y < 0].max()
             f = self.coord2freq(self.px[nearest_x_index], nearest_y, period=True)
-                
+            
             # Point labelling
             l = self.get_l_mode_choice(l_mode)
             self.add_point(f, l)
@@ -421,9 +420,9 @@ class EchellePlotter:
 
         min_l = 0
         min_i = 0
-        for l, ls in enumerate(self.f_labels):
+        for l, ls in self.f_labels.items():
             for i, freq in enumerate(ls):
-                # Calculate distance on plot
+                # Calculate Euclidean distance on plot
                 if period:
                     x, y = self.p2coord(self.f2p(freq), self.DP)
                 else:
@@ -436,7 +435,7 @@ class EchellePlotter:
                     min_i = i
 
         # Does not have corresponding frequency label
-        if min_diff > 2:
+        if (not period and min_diff > 1) or (period and min_diff > 5):
             return
 
         # Remove label
@@ -481,8 +480,6 @@ class EchellePlotter:
                 self.pscatters[l].remove()
                 self.pscatters[l] = None
 
-            self.legend_labels.remove(f"l={l}")
-
         # First label of the mode
         elif has_label_no_scatter:
             # Update scatter plots based on l value
@@ -497,7 +494,7 @@ class EchellePlotter:
 
             # Period coordinates
             if self.plot_period:
-                # Line instead of scatter plot
+                # Plot Line
                 if l in self.plot_line:
                     # Connect dots in ascending frequency order
                     ordered_f = np.sort(self.f_labels[l])
@@ -505,15 +502,14 @@ class EchellePlotter:
 
                     # Only gets plot when expanded as tuple
                     self.pscatters[l], = self.pax.plot([],[], "--",
-                        color=self.colors[l], marker=self.markers[l])
+                        color=self.colors[l], marker=self.markers[l], label=label)
+
+                # Scatter plot
                 else:
                     px_labels, py_labels = self.get_pcoords(self.f_labels[l], self.DP)
                     self.pscatters[l] = self.pax.scatter(px_labels, py_labels, 
                         s=50, marker=marker, label=label, color=color)
 
-            # Legend labels
-            if label not in self.legend_labels:
-                self.legend_labels.append(f"l={l}")
         else:
             x_labels, y_labels = self.get_coords(self.f_labels[l], self.Dnu)
             self.scatters[l].set_offsets(np.c_[x_labels, y_labels])
@@ -525,13 +521,10 @@ class EchellePlotter:
                     px_labels, py_labels = self.get_pcoords(self.f_labels[l], self.DP)
                     self.pscatters[l].set_offsets(np.c_[px_labels, py_labels])
 
-        # Prevent view from changing after point is added
-        # self.set_extent()
-        self.ax.legend(self.legend_labels)
-
+        # Draw legend if there are labels
+        self.ax.legend()
         if self.plot_period:
-            # self.set_pextent()
-            self.pax.legend(self.legend_labels)
+            self.pax.legend()
 
         self.fig.canvas.draw()
 
@@ -541,10 +534,6 @@ class EchellePlotter:
         x_line, y_line = self.get_pcoords(np.array(ordered_f), self.DP)
         self.pscatters[l].set_data(x_line, y_line)
         self.fig.canvas.draw()
-
-    def get_legend_labels(self):
-        """Get legend labels based on whether there is data for each legend"""
-        return [f"l={l}" for l in range(len(self.f_labels)) if len(self.f_labels[l]) != 0]
 
     def get_l_mode_choice(self, choice):
         if choice == '$\ell=0$':
@@ -762,6 +751,7 @@ class EchellePlotter:
             json.dump(self.f_labels, f)
 
 if __name__ == "__main__":
+
     # Read in csv
     ps_df = pd.read_csv("data/11502092_PS.csv", sep='\t', names=['freq', 'pows'])
 
