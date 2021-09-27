@@ -12,7 +12,7 @@ class EchellePlotter:
     def __init__(self,     
         freq, power,
         Dnu_min, Dnu_max, fmin=0, fmax=None, step=None,
-        plot_period=False, DP_min=None, DP_max=None, pstep=None,
+        period=None, period_power=None, pmin=None, pmax=None, DP_min=None, DP_max=None, pstep=None,
         cmap="BuPu", colors={}, markers={}, plot_line=[], size=50, 
         figsize=(6.4, 4.8), dpi=100,
         interpolation=None, smooth=False, smooth_filter_width=50.0, scale=None):
@@ -26,7 +26,11 @@ class EchellePlotter:
         self.plot_line = plot_line
         self.size = size
 
-        self.plot_period = plot_period
+        if period is not None and period_power is not None:
+            self.plot_period = True
+        else:
+            self.plot_period = False
+
         if self.plot_period:
             if DP_min == None or DP_max == None:
                 raise Exception("Must provide DP_min and DP_max when plotting period echelle")
@@ -55,6 +59,10 @@ class EchellePlotter:
         self.freq = freq
         self.power = power
 
+        if self.plot_period:
+            self.period = period
+            self.p_power = period_power
+
     #==================================================================
     # Data preparation
     #==================================================================
@@ -64,9 +72,20 @@ class EchellePlotter:
         self.update_echelle()
         if self.plot_period:
             # Minimum frequency is maximum period
-            self.pmin = self.f2p(self.fmax)
-            self.pmax = self.f2p(self.fmin)
-            self.period = self.f2p(np.array(self.freq))
+            if pmin == None:
+                self.pmin = self.period[0]
+            else:
+                if pmin < self.period[0]:
+                    raise Exception("pmin provided exceeds the range of given period")
+                self.pmin = pmin
+
+            if pmax == None:
+                self.pmax = self.period[-1]
+            else:
+                if pmax > self.period[-1]:
+                    raise Exception("pmax provided exceeds the range of given period")
+                self.pmax = pmax
+
             self.update_period_echelle()
 
     #==================================================================
@@ -110,7 +129,6 @@ class EchellePlotter:
                 xlabel=u"Period mod \u0394P", ylabel="Period (s)")
 
             self.set_pextent()
-
             self.create_DP_slider(DP_min, DP_max, pstep)
 
     #==================================================================
@@ -200,7 +218,7 @@ class EchellePlotter:
 
     def update_echelle(self):
         """Get new period echelle"""
-        self.x, self.y, self.z = EchellePlotter.echelle(self.freq, self.power, self.Dnu, 
+        self.x, self.y, self.fmap, self.z = EchellePlotter.echelle(self.freq, self.power, self.Dnu, 
             sampling=1, fmin=self.fmin, fmax=self.fmax)
         # Scale image intensities
         if self.scale == "sqrt":
@@ -211,7 +229,7 @@ class EchellePlotter:
     def update_period_echelle(self):
         """Get new period echelle"""
         # Ascending period to feed into echelle
-        self.px, self.py, self.pz = EchellePlotter.echelle(self.period[::-1], self.power[::-1], 
+        self.px, self.py, self.pmap, self.pz = EchellePlotter.echelle(self.period, self.p_power, 
             self.DP, sampling=1, fmin=self.pmin, fmax=self.pmax)
 
         # Flip the y-axis
@@ -223,13 +241,14 @@ class EchellePlotter:
         elif self.scale == "log":
             self.pz = np.log10(self.pz)
 
-    def update(self, Dnu):
+    def update(self, Dnu, shift=False):
         """Updates frequency echelle diagram given new Dnu"""
         self.Dnu = Dnu
         self.update_echelle()
         self.image.set_array(self.z)
 
-        self.set_extent()
+        if shift:
+            self.set_extent()
 
         # Shift labelled points accordingly
         self.update_labels()
@@ -237,7 +256,7 @@ class EchellePlotter:
         # Render
         self.fig.canvas.blit(self.ax.bbox)
 
-    def pupdate(self, DP):
+    def pupdate(self, DP, shift=False):
         """Updates period echelle diagram given new DP"""
         self.DP = DP
 
@@ -249,7 +268,8 @@ class EchellePlotter:
         # self.pimage.set_extent((self.px.max(), self.px.min(), self.py.max(), self.py.min()))
         # self.pax.set_xlim(self.DP, 0)
 
-        self.set_pextent()
+        if shift:
+            self.set_pextent()
 
         # Shift labelled points accordingly
         self.update_labels()
@@ -267,7 +287,7 @@ class EchellePlotter:
             else:
                 new_Dnu = self.slider.val + self.slider.valstep
             self.slider.set_val(new_Dnu)
-            self.update(new_Dnu)
+            self.update(new_Dnu, shift=True)
 
         elif self.plot_period and (key == "h" or key == "l"):
             if key == "h":
@@ -276,7 +296,7 @@ class EchellePlotter:
                 new_DP = self.pslider.val + self.pslider.valstep
 
             self.pslider.set_val(new_DP)
-            self.pupdate(new_DP)
+            self.pupdate(new_DP, shift=True)
 
         # Select remove tool
         elif key == 'r':
@@ -305,7 +325,6 @@ class EchellePlotter:
         axcolor = 'white'
         rax = plt.axes([0.02, 0.7, 0.08, 0.15], facecolor=axcolor)
         self.radio_l = RadioButtons(rax, ('', '$\ell=0$', '$\ell=1$', '$\ell=2$', 'remove'))
-        # self.radio_l = RadioButtons(rax, ('', '$\ell=0$', '$\ell=1$', '$\ell=2$', '---'))
 
     def create_save_button(self):
         """Press to call export_points"""
@@ -351,72 +370,46 @@ class EchellePlotter:
         # Remove current selected frequency
         if l_mode == "remove":
             if click_in_f_plot:
-                y_inc = self.y[1] - self.y[0]
-
-                # Find the nearest x and y value in self.x and self.y
-                nearest_x_index = (np.abs(self.x-x)).argmin()
-
-                # Find y that are just below our cursor
-                nearest_y = self.y[self.y-y < 0].max()
-
-                f = self.coord2freq(self.x[nearest_x_index], nearest_y)
-                self.remove_point(f)
+                self.remove_point(x, y)
 
             elif click_in_p_plot:
-                # Find the nearest x and y value in self.x and self.y
-                nearest_x_index = (np.abs(self.px-x)).argmin()
-
-                # Find y that are just below our cursor
-                nearest_y = self.py[self.py-y < 0].max()
-                f = self.coord2freq(self.px[nearest_x_index], nearest_y, period=True)
-                    
-                # Point labelling
-                py_inc = self.py[1] - self.py[0]
-
-                self.remove_point(f, period=True)
+                self.remove_point(x, y, period=True)
 
         elif click_in_f_plot:
-            # Find the nearest x and y value in self.x and self.y
-            nearest_x_index = (np.abs(self.x-x)).argmin()
-
-            # Find y that are just below our cursor
-            nearest_y = self.y[self.y-y < 0].max()
-
-            # Point labelling
-            f = self.coord2freq(self.x[nearest_x_index], nearest_y)
             l = self.get_l_mode_choice(l_mode)
-            self.add_point(f, l)
-            print(f"freq={f:.3f}")
+            self.add_point(x, y, l)
+
 
         elif click_in_p_plot:
-            # Find the nearest x and y value in self.x and self.y
-            nearest_x_index = (np.abs(self.px-x)).argmin()
-
-            # Find y that are just below our cursor
-            nearest_y = self.py[self.py-y < 0].max()
-            f = self.coord2freq(self.px[nearest_x_index], nearest_y, period=True)
-            
             # Point labelling
             l = self.get_l_mode_choice(l_mode)
-            self.add_point(f, l)
+            self.add_point(x, y, l, period=True)
 
-    def add_point(self, f, l):
+    def add_point(self, x, y, l, period=False):
         """Add point to the plot and update scatter"""
+        if period:
+            # Find the nearest x and y value in self.x and self.y
+            nearest_x = self.px[(np.abs(self.px-x)).argmin()]
+            nearest_y = self.py[np.abs(self.py-y).argmin()]
+            f = self.coord2freq(nearest_x, nearest_y, period=True)
+
+        else:
+            # Find the nearest x and y value in self.px and self.py
+            nearest_x = self.x[(np.abs(self.x-x)).argmin()]
+            nearest_y = self.y[np.abs(self.y-y).argmin()]
+            f = self.coord2freq(nearest_x, nearest_y)
+
         self.f_labels[l].append(f)
         self.update_scatter(l)
         self.labels += 1
 
-    def remove_point(self, f, period=False):
+    def remove_point(self, x0, y0, period=False):
         """Removes point with given frequency"""
         if self.labels == 0:
             return
 
         # Find the label close to this frequency
         min_diff = 1000
-        if period:
-            x0, y0 = self.p2coord(self.f2p(f), self.DP)
-        else:
-            x0, y0 = self.f2coord(f, self.Dnu)
 
         min_l = 0
         min_i = 0
@@ -424,18 +417,18 @@ class EchellePlotter:
             for i, freq in enumerate(ls):
                 # Calculate Euclidean distance on plot
                 if period:
-                    x, y = self.p2coord(self.f2p(freq), self.DP)
+                    x, y = self.p2coord(self.f2p(freq))
                 else:
-                    x, y = self.f2coord(freq, self.Dnu)
+                    x, y = self.f2coord(freq)
 
-                diff = (x-x0)**2 + (y-y0)**2
+                diff = np.sqrt((x-x0)**2 + (y-y0)**2)
                 if diff < min_diff:
                     min_diff = diff
                     min_l = l
                     min_i = i
 
         # Does not have corresponding frequency label
-        if (not period and min_diff > 1) or (period and min_diff > 5):
+        if (not period and min_diff > 0.1) or (period and min_diff > 100):
             return
 
         # Remove label
@@ -446,13 +439,13 @@ class EchellePlotter:
     def set_extent(self):
         """Set new visible range for x and y axes of frequency echelle"""
         self.image.set_extent((self.x.min(), self.x.max(), self.y.min(), self.y.max()))
-        self.ax.set_xlim(0, self.Dnu)
+        # self.ax.set_xlim(0, self.Dnu)
 
     def set_pextent(self):
         """Set new visible range for y axis of period echelle"""
         # Extent and xlim match inverted axes
         self.pimage.set_extent((self.px.min(), self.px.max(), self.py.max(), self.py.min()))
-        self.pax.set_xlim(0, self.DP)
+        # self.pax.set_xlim(0, self.DP)
 
     def update_labels(self):
         """Update the labels to new echelle diagram coordinates"""
@@ -479,6 +472,7 @@ class EchellePlotter:
             if self.plot_period:
                 self.pscatters[l].remove()
                 self.pscatters[l] = None
+
 
         # First label of the mode
         elif has_label_no_scatter:
@@ -549,7 +543,7 @@ class EchellePlotter:
         xs = []
         ys = []
         for f in freqs:
-            x, y = self.f2coord(f, Dnu)
+            x, y = self.f2coord(f)
             xs.append(x)
             ys.append(y)
 
@@ -561,36 +555,27 @@ class EchellePlotter:
         ys = []
         for f in freqs:
             p = self.f2p(f)
-            x, y = self.p2coord(p, DP)
+            x, y = self.p2coord(p)
             xs.append(x)
             ys.append(y)
 
         return xs, ys
 
-    def f2coord(self, freq, Dnu):
+    def f2coord(self, freq):
         """Frequency to coordinate on the Echelle"""
-        y_inc = self.y[1] - self.y[0]
-        x = (freq - self.x.min()) % Dnu# freq mod Dnu is x-coordinate
-        # The bin just below the frequency, plus half increment (for labelling in middle) 
-        y = self.y[self.y < freq].max() + 0.5*y_inc
-        return x, y
+        r, c = EchellePlotter.unravel_nearest_index(self.fmap, freq)
+        return self.x[c], self.y[r]
 
-    def p2coord(self, period, DP):
+    def p2coord(self, period):
         """Period to coordinate on the Echelle"""
-        py_inc = self.py[1] - self.py[0]
-        x = (period - self.px.min()) % DP# period mod DP is x-coordinate
-        
-        # The bin just below the period, plus half increment (for labelling in middle)
-        y = self.py[self.py < period].max() + 0.5*py_inc
-        return x, y
+        r, c = EchellePlotter.unravel_nearest_index(self.pmap, period)
+        return self.px[c], self.py[r]
 
     def coord2freq(self, x, y, period=False):
-        if not period:
-            return y + x
+        if period:
+            return self.p2f(y + x)
 
-        # Period coordinates to frequency
-        p = x + y
-        return self.p2f(p)
+        return x + y
 
 #======================================================================
 # Utilities
@@ -610,6 +595,13 @@ class EchellePlotter:
     def p2f(self, period):
         """From period (s) to frequency (muHz)"""
         return 1e6/period
+
+    def unravel_nearest_index(array, value):
+        """Returns the indices as tuples where value is closest in array"""
+        array = np.asarray(array)
+        array = np.abs(array - value)
+        idx = np.unravel_index(np.argmin(array, axis=None), array.shape)
+        return idx
 
     def echelle(freq, power, Dnu, fmin=0.0, fmax=None, offset=0.0, sampling=0.1):
         """Calculates the echelle diagram. Use this function if you want to do
@@ -658,45 +650,28 @@ class EchellePlotter:
         # median interval width
         samplinginterval = np.median(trimx[1:-1] - trimx[0:-2]) * sampling
 
-        # Fixed sampling interval x values
+        # Take a range of frequencies separated by the samplinginterval
+        # and use linear interpolation to estimate power values of those frequencies
         xp = np.arange(fmin, fmax + Dnu, samplinginterval)
-
-        # Interpolant (approximation) for xp values (given the frequency and power)
         yp = np.interp(xp, freq, power)
 
         # Number of stacks and Number of elements in each stack
         n_stack = int((fmax - fmin) / Dnu)
         n_element = int(Dnu / samplinginterval)
 
-        # Number of rows for each datapoint (elongate graph)
-        morerow = 2
-
-        # Array of length = number of stacks
-        arr = np.arange(1, n_stack) * Dnu
-
-        # Double the size (due to 2 rows?)
-        arr2 = np.array([arr, arr])
-
-        # y-values of each stack - reshape 2 stacks
-        yn = np.reshape(arr2, len(arr) * 2, order="F")
-
-        # Ending values - Insert 0 in beginning and append number of stacks * Dnu, plus offsets
-        yn = np.insert(yn, 0, 0.0)
-        yn = np.append(yn, n_stack * Dnu) + fmin + offset
-
-        # x values of partition
-        xn = np.arange(1, n_element + 1) / n_element * Dnu
-
         # image as 2D array
-        z = np.zeros([n_stack * morerow, n_element])
+        freqs = np.zeros([n_stack, n_element])
+        pows = np.zeros([n_stack, n_element])
 
         # Add yp values to rows of image
         for i in range(n_stack):
-            for j in range(i * morerow, (i + 1) * morerow):
-                # Multiple rows of the same data
-                z[j, :] = yp[n_element * (i) : n_element * (i + 1)]
+            freqs[i, :] = xp[n_element * (i) : n_element * (i + 1)]
+            pows[i, :] = yp[n_element * (i) : n_element * (i + 1)]
 
-        return xn, yn, z
+        xn = freqs[0]-freqs[0,0]
+        yn = freqs[:,0]
+
+        return xn, yn, freqs, pows
 
     def smooth_power(power, smooth_filter_width):
         """Smooths the input power array with a Box1DKernel from astropy
@@ -751,18 +726,12 @@ class EchellePlotter:
             json.dump(self.f_labels, f)
 
 if __name__ == "__main__":
-
-    # Read in csv
-    ps_df = pd.read_csv("data/11502092_PS.csv", sep='\t', names=['freq', 'pows'])
-
-    # Prepare numpy array data
-    freq = ps_df.freq.to_numpy()
-    pows = ps_df.pows.to_numpy()
-
-    amp = np.sqrt(pows)
-    df=freq[1]-freq[0]
-    # smooth = .1/df  # in muHz
-    # amp=convolve(amp, Box1DKernel(smooth))
+    #-----------------------------------
+    # Produce power spectrum
+    #-----------------------------------
+    ps_df = pd.read_csv("data/11502092_PS.csv", sep='\t', names=['freq', 'amp'])
+    freq = np.array(ps_df.freq)
+    amp = np.array(ps_df.amp)
 
     Dnu = 5 # large frequency separation (muHz)
     fmin = 15
@@ -771,9 +740,17 @@ if __name__ == "__main__":
     # Change to period
     DP = 295.6 # period spacing
 
+    #-----------------------------------
+    # Produce periodogram
+    #-----------------------------------
+    period_df = pd.read_csv("data/11502092_Period.csv")
+    equal_period = np.array(period_df.period)
+    equal_period_amp = np.array(period_df.amp)
+
     e = EchellePlotter(freq, amp, Dnu_min=Dnu-3, Dnu_max=Dnu+3, step=.05,
         fmin=fmin, fmax=fmax,
-        plot_period=True,  DP_min=DP-50, DP_max=DP+50, pstep=0.1,
+        period=equal_period, period_power=equal_period_amp,
+        DP_min=DP-10, DP_max=DP+10, pstep=0.1,
         colors={0:"red", 1:"blue", 2:"red"},
         markers={0: "o", 1:"^", 2:"s"},
         plot_line=[1])
