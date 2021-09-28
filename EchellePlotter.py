@@ -388,15 +388,15 @@ class EchellePlotter:
     def add_point(self, x, y, l, period=False):
         """Add point to the plot and update scatter"""
         if period:
-            # Find the nearest x and y value in self.x and self.y
-            nearest_x = self.px[(np.abs(self.px-x)).argmin()]
-            nearest_y = self.py[np.abs(self.py-y).argmin()]
+            # Find the left x and down y value in self.x and self.y
+            nearest_x = self.px[self.px-x < 0].max()
+            nearest_y = self.py[self.py-y < 0].max()
             f = self.coord2freq(nearest_x, nearest_y, period=True)
 
         else:
             # Find the nearest x and y value in self.px and self.py
-            nearest_x = self.x[(np.abs(self.x-x)).argmin()]
-            nearest_y = self.y[np.abs(self.y-y).argmin()]
+            nearest_x = self.x[self.x-x < 0].max()
+            nearest_y = self.y[self.y-y < 0].max()
             f = self.coord2freq(nearest_x, nearest_y)
 
         self.f_labels[l].append(f)
@@ -497,6 +497,7 @@ class EchellePlotter:
                     # Only gets plot when expanded as tuple
                     self.pscatters[l], = self.pax.plot([],[], "--",
                         color=self.colors[l], marker=self.markers[l], label=label)
+                    self.update_line(l)
 
                 # Scatter plot
                 else:
@@ -564,12 +565,20 @@ class EchellePlotter:
     def f2coord(self, freq):
         """Frequency to coordinate on the Echelle"""
         r, c = EchellePlotter.unravel_nearest_index(self.fmap, freq)
-        return self.x[c], self.y[r]
+        # To line up with the middle of the pixel
+        # Increment both x and y by half the sampling width
+        x_inc = self.x[1] - self.x[0]
+        y_inc = self.y[1] - self.y[0]
+        return self.x[c] + 0.5*x_inc, self.y[r] + 0.5*y_inc
 
     def p2coord(self, period):
         """Period to coordinate on the Echelle"""
         r, c = EchellePlotter.unravel_nearest_index(self.pmap, period)
-        return self.px[c], self.py[r]
+        # To line up with the middle of the pixel
+        # Increment both x and y by half the sampling width        
+        x_inc = self.px[1] - self.px[0]
+        y_inc = self.py[1] - self.py[0]
+        return self.px[c] + 0.5*x_inc, self.py[r] + 0.5*y_inc
 
     def coord2freq(self, x, y, period=False):
         if period:
@@ -668,8 +677,11 @@ class EchellePlotter:
             freqs[i, :] = xp[n_element * (i) : n_element * (i + 1)]
             pows[i, :] = yp[n_element * (i) : n_element * (i + 1)]
 
+        # Construct x-y coordinates and provide endpoints (last value + increment)
         xn = freqs[0]-freqs[0,0]
+        xn = np.append(xn, xn[-1] + xn[1]-xn[0])
         yn = freqs[:,0]
+        yn = np.append(yn, yn[-1] + yn[1]-yn[0])
 
         return xn, yn, freqs, pows
 
