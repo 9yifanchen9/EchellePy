@@ -71,16 +71,21 @@ class EchellePlotter:
 
         self.update_echelle()
         if self.plot_period:
+            # Automatically match range of period with range of frequency
             # Minimum frequency is maximum period
             if pmin == None:
-                self.pmin = self.period[0]
+                self.pmin = self.f2p(self.fmax)
+                if self.pmin < self.period[0]:
+                    self.pmin = self.period[0]
             else:
                 if pmin < self.period[0]:
                     raise Exception("pmin provided exceeds the range of given period")
                 self.pmin = pmin
 
             if pmax == None:
-                self.pmax = self.period[-1]
+                self.pmax = self.f2p(self.fmin)
+                if self.pmax > self.period[-1]:
+                    self.pmax = self.period[-1]
             else:
                 if pmax > self.period[-1]:
                     raise Exception("pmax provided exceeds the range of given period")
@@ -721,9 +726,10 @@ class EchellePlotter:
 
         # Assign values to the dictionary
         # f_labels have integers as key, but json reads keys as strings
-        self.f_labels[0] = data['0']
-        self.f_labels[1] = data['1']
-        self.f_labels[2] = data['2']
+        self.f_labels[0] = self.f_labels[0] + data['0']
+        self.f_labels[1] = self.f_labels[1] + data['1']
+        self.f_labels[2] = self.f_labels[2] + data['2']
+        self.labels += len(data['0']) + len(data['1']) + len(data['2'])
 
     def save_button_clicked(self, events):
         """Wrapper for export_points when button clicked"""
