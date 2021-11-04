@@ -246,14 +246,13 @@ class EchellePlotter:
         elif self.scale == "log":
             self.pz = np.log10(self.pz)
 
-    def update(self, Dnu, shift=False):
+    def update(self, Dnu):
         """Updates frequency echelle diagram given new Dnu"""
         self.Dnu = Dnu
         self.update_echelle()
         self.image.set_array(self.z)
 
-        if shift:
-            self.set_extent()
+        self.set_extent()
 
         # Shift labelled points accordingly
         self.update_labels()
@@ -261,7 +260,7 @@ class EchellePlotter:
         # Render
         self.fig.canvas.blit(self.ax.bbox)
 
-    def pupdate(self, DP, shift=False):
+    def pupdate(self, DP):
         """Updates period echelle diagram given new DP"""
         self.DP = DP
 
@@ -273,8 +272,7 @@ class EchellePlotter:
         # self.pimage.set_extent((self.px.max(), self.px.min(), self.py.max(), self.py.min()))
         # self.pax.set_xlim(self.DP, 0)
 
-        if shift:
-            self.set_pextent()
+        self.set_pextent()
 
         # Shift labelled points accordingly
         self.update_labels()
@@ -292,7 +290,6 @@ class EchellePlotter:
             else:
                 new_Dnu = self.slider.val + self.slider.valstep
             self.slider.set_val(new_Dnu)
-            self.update(new_Dnu, shift=True)
 
         elif self.plot_period and (key == "h" or key == "l"):
             if key == "h":
@@ -301,7 +298,6 @@ class EchellePlotter:
                 new_DP = self.pslider.val + self.pslider.valstep
 
             self.pslider.set_val(new_DP)
-            self.pupdate(new_DP, shift=True)
 
         # Select remove tool
         elif key == 'r':
@@ -743,13 +739,21 @@ class EchellePlotter:
         with open(filename, "w") as f:
             json.dump(self.f_labels, f)
 
+from astropy.convolution import convolve, Box1DKernel, Gaussian1DKernel
+def smoothen(x, y, smooth):
+    dx=x[1]-x[0]
+    smooth = smooth / dx
+    smooth_y = convolve(y, Gaussian1DKernel(smooth))
+    return smooth_y
+
 if __name__ == "__main__":
     #-----------------------------------
     # Produce power spectrum
     #-----------------------------------
-    ps_df = pd.read_csv("data/11502092_PS.csv", sep='\t', names=['freq', 'amp'])
+    ps_df = pd.read_csv("data/yu-lowest-mass/11502092_PS.csv", sep='\t', names=['freq', 'amp'])
     freq = np.array(ps_df.freq)
     amp = np.array(ps_df.amp)
+    amp = smoothen(freq, amp, 0.02)
 
     Dnu = 5 # large frequency separation (muHz)
     fmin = 15
@@ -762,16 +766,33 @@ if __name__ == "__main__":
     # Produce periodogram
     #-----------------------------------
     period_df = pd.read_csv("data/11502092_Period.csv")
-    equal_period = np.array(period_df.period)
-    equal_period_amp = np.array(period_df.amp)
+    period = np.array(period_df.period)
+    period_amp = np.array(period_df.amp)
+    period_amp = smoothen(period, period_amp, 5)
 
     e = EchellePlotter(freq, amp, Dnu_min=Dnu-3, Dnu_max=Dnu+3, step=.05,
         fmin=fmin, fmax=fmax,
-        period=equal_period, period_power=equal_period_amp,
+        period=period, period_power=period_amp,
         DP_min=DP-10, DP_max=DP+10, pstep=0.1,
+        pmin=1e6/fmax, pmax=45000,
         colors={0:"red", 1:"blue", 2:"red"},
         markers={0: "o", 1:"^", 2:"s"},
         plot_line=[1])
     e.show()
+
+    """
+    star = pd.read_csv(f"data/yu-lowest-mass/3238626_PS.csv", sep='\t', names=['freq', 'amp'])
+    freq = np.array(star.freq)
+    amp = np.array(star.amp)
+    amp = smoothen(freq, amp, 0.01)
+
+    Dnu = 3.51
+
+    e = EchellePlotter(freq, amp, Dnu_min=Dnu-3, Dnu_max=Dnu+3, step=.05,
+        fmin=15, fmax=35,
+        colors={0:"red", 1:"blue", 2:"red"},
+        markers={0: "o", 1:"^", 2:"s"})
+    e.show()
+    """
 
 
