@@ -748,9 +748,9 @@ def smoothen(x, y, smooth):
 
 if __name__ == "__main__":
     #-----------------------------------
-    # Produce power spectrum
+    # Prepare power spectrum
     #-----------------------------------
-    ps_df = pd.read_csv("data/yu-lowest-mass/11502092_PS.csv", sep='\t', names=['freq', 'amp'])
+    ps_df = pd.read_csv("data/11502092_PS.csv", sep='\t', names=['freq', 'amp'])
     freq = np.array(ps_df.freq)
     amp = np.array(ps_df.amp)
     amp = smoothen(freq, amp, 0.02)
@@ -763,7 +763,7 @@ if __name__ == "__main__":
     DP = 295.6 # period spacing
 
     #-----------------------------------
-    # Produce periodogram
+    # Prepare periodogram
     #-----------------------------------
     period_df = pd.read_csv("data/11502092_Period.csv")
     period = np.array(period_df.period)
@@ -779,20 +779,5 @@ if __name__ == "__main__":
         markers={0: "o", 1:"^", 2:"s"},
         plot_line=[1])
     e.show()
-
-    """
-    star = pd.read_csv(f"data/yu-lowest-mass/3238626_PS.csv", sep='\t', names=['freq', 'amp'])
-    freq = np.array(star.freq)
-    amp = np.array(star.amp)
-    amp = smoothen(freq, amp, 0.01)
-
-    Dnu = 3.51
-
-    e = EchellePlotter(freq, amp, Dnu_min=Dnu-3, Dnu_max=Dnu+3, step=.05,
-        fmin=15, fmax=35,
-        colors={0:"red", 1:"blue", 2:"red"},
-        markers={0: "o", 1:"^", 2:"s"})
-    e.show()
-    """
 
 
